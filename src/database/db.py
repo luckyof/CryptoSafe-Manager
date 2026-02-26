@@ -1,11 +1,12 @@
 import sqlite3
 import threading
 import os
+import shutil
 from typing import Optional
 
 class DatabaseHelper:
-    #Помощник для работы с SQLite. Потокобезопасный.
-    #Требования: DB-1, DB-3
+    # Помощник для работы с SQLite. Потокобезопасный.
+    # Требования: DB-1, DB-3, DB-4
     def __init__(self, db_path: str):
         self.db_path = db_path
         self._local = threading.local()
@@ -22,7 +23,7 @@ class DatabaseHelper:
         conn = self._get_connection()
         cursor = conn.cursor()
         
-        #таблица записей хранилища
+        # 1. Таблица записей хранилища
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS vault_entries (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -37,7 +38,7 @@ class DatabaseHelper:
             )
         """)
 
-        #журнал аудита (для Спринта 5)
+        # 2. Журнал аудита (для Спринта 5)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS audit_log (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -49,7 +50,7 @@ class DatabaseHelper:
             )
         """)
 
-        #настройки
+        # 3. Настройки
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS settings (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -59,7 +60,7 @@ class DatabaseHelper:
             )
         """)
 
-        #хранилище ключей (для Спринта 2)
+        # 4. Хранилище ключей (для Спринта 2)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS key_store (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -70,7 +71,13 @@ class DatabaseHelper:
             )
         """)
         
-        #установка версии схемы (для миграций DB-3)
+        #Создание индексов 
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_vault_title ON vault_entries(title)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_vault_username ON vault_entries(username)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_settings_key ON settings(setting_key)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp)")
+        
+        # Установка версии схемы
         cursor.execute("PRAGMA user_version = 1")
         
         conn.commit()
@@ -93,6 +100,29 @@ class DatabaseHelper:
         cursor = conn.cursor()
         cursor.execute(query, params)
         return cursor.fetchone()
+
+    #Механизм резервного копирования 
+    def backup(self, backup_path: str) -> bool:
+        """Создает копию файла базы данных."""
+        try:
+            # Закрываем текущее соединение для надежности копии
+            if hasattr(self._local, 'connection'):
+                self._local.connection.close()
+                del self._local.connection
+            
+            if os.path.exists(self.db_path):
+                shutil.copy2(self.db_path, backup_path)
+                return True
+            return False
+        except Exception as e:
+            print(f"Backup error: {e}")
+            return False
+
+    def restore(self, backup_path: str) -> bool:
+        """Восстанавливает базу данных из файла (заглушка для Спринта 8)."""
+        # Логика восстановления будет реализована в Спринте 8
+        #проверяем наличие файла
+        return os.path.exists(backup_path)
 
     def close(self):
         if hasattr(self._local, 'connection'):
