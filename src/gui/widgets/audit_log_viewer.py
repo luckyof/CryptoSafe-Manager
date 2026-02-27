@@ -1,20 +1,22 @@
+
 import tkinter as tk
 from tkinter import ttk
 
-class AuditLogViewer(tk.Toplevel):
+class AuditLogViewer(ttk.Frame):
+    """
+    Заглушка виджета для просмотра логов аудита.
+    Требование: GUI-2
+    """
     def __init__(self, parent):
         super().__init__(parent)
-        self.title("Просмотр логов аудита")
-        self.geometry("600x400")
+        
+        self.text_area = tk.Text(self, state='disabled', wrap=tk.WORD)
+        self.text_area.pack(fill=tk.BOTH, expand=True)
+        
+        # Тестовая запись
+        self.log("[STUB] Инициализация модуля аудита.")
 
-        label = tk.Label(self, text="Заглушка для Спринта 5: Здесь будут отображаться логи аудита.")
-        label.pack(pady=20)
-
-        # Пример таблицы-заглушки
-        tree = ttk.Treeview(self, columns=("timestamp", "action", "details"), show="headings")
-        tree.heading("timestamp", text="Время")
-        tree.heading("action", text="Действие")
-        tree.heading("details", text="Детали")
-        tree.pack(fill=tk.BOTH, expand=True)
-
-        ttk.Button(self, text="Закрыть", command=self.destroy).pack(pady=10)
+    def log(self, message):
+        self.text_area.config(state='normal')
+        self.text_area.insert(tk.END, message + "\n")
+        self.text_area.config(state='disabled')
