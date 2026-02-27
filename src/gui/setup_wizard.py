@@ -92,3 +92,4 @@ class SetupWizard(tk.Toplevel):
         
         self.completed = True
         self.destroy()
+
