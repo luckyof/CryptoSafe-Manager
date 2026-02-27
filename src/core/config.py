@@ -1,6 +1,8 @@
 import os
 import json
 from typing import Optional, Any
+
+# Импортируем DatabaseHelper для аннотации типов (избегаем циклических импортов в рантайме)
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from src.database.db import DatabaseHelper
@@ -17,7 +19,9 @@ class ConfigManager:
         
         # Инициализируем настройки значениями по умолчанию
         self.settings = self._default_settings()
+        
         # Загружаем метаданные (путь к БД) из файла
+        # И создаем атрибут self.db_path
         self._load_meta_config()
         
         self._db_helper: Optional['DatabaseHelper'] = None
@@ -34,35 +38,35 @@ class ConfigManager:
         }
 
     def _load_meta_config(self):
-        #Загрузка метаданных (путь к БД) из JSON файла.
+        """Загрузка метаданных (путь к БД) из JSON файла."""
         if os.path.exists(self.config_file):
             with open(self.config_file, 'r') as f:
                 data = json.load(f)
                 # Путь к БД храним в атрибуте, а не в общем словаре настроек
                 self.db_path = data.get("db_path", os.path.join(self.config_dir, "vault.db"))
         else:
+            # Если файла нет, используем путь по умолчанию
             self.db_path = os.path.join(self.config_dir, "vault.db")
             self._save_meta_config()
 
     def _save_meta_config(self):
-        #Сохранение метаданных (путь к БД) в JSON.
+        """Сохранение метаданных (путь к БД) в JSON."""
         with open(self.config_file, 'w') as f:
             json.dump({"db_path": self.db_path}, f, indent=4)
 
     def attach_database(self, db_helper: 'DatabaseHelper'):
-        #Подключение к БД для синхронизации настроек.
+        """Подключение к БД для синхронизации настроек."""
         self._db_helper = db_helper
         self._load_settings_from_db()
 
     def _load_settings_from_db(self):
-        #Загрузка настроек из таблицы settings (CFG-2).
+        """Загрузка настроек из таблицы settings (CFG-2)."""
         if not self._db_helper:
             return
         
         rows = self._db_helper.fetchall("SELECT setting_key, setting_value FROM settings")
         for row in rows:
             key, value = row
-            # Преобразование строк из БД в нужные типы (int и т.д.) здесь опущено для простоты заглушки
             self.settings[key] = value
 
     def get(self, key: str, default=None):
