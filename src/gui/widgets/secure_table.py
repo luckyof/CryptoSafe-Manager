@@ -2,19 +2,34 @@ import tkinter as tk
 from tkinter import ttk
 
 class SecureTable(ttk.Treeview):
-    def __init__(self, parent, **kwargs):
-        super().__init__(parent, columns=("title", "username", "url", "notes"), show="headings", **kwargs)
+    """
+    Таблица для отображения записей хранилища.
+    Требование: GUI-2
+    """
+    def __init__(self, parent, columns=("id", "title", "username", "url"), **kwargs):
+        super().__init__(parent, columns=columns, show="headings", **kwargs)
         
+        self.columns = columns
+        # Настройка заголовков
+        self.heading("id", text="ID")
         self.heading("title", text="Название")
-        self.heading("username", text="Имя пользователя")
+        self.heading("username", text="Логин")
         self.heading("url", text="URL")
-        self.heading("notes", text="Заметки")
         
-        self.column("title", width=200)
+        # Настройка ширины столбцов
+        self.column("id", width=30, stretch=False)
+        self.column("title", width=150)
         self.column("username", width=150)
         self.column("url", width=200)
-        self.column("notes", width=200)
 
-        # Тестовые данные (заглушка)
-        self.insert("", tk.END, values=("Тестовая запись 1", "user1", "https://example.com", "Заметка 1"))
-        self.insert("", tk.END, values=("Тестовая запись 2", "user2", "https://example.org", "Заметка 2"))
+        # Полоса прокрутки
+        scrollbar = ttk.Scrollbar(parent, orient=tk.VERTICAL, command=self.yview)
+        self.configure(yscrollcommand=scrollbar.set)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+    def load_data(self, data):
+        """Загрузка данных (список словарей)"""
+        self.delete(*self.get_children())
+        for item in data:
+            self.insert("", tk.END, values=(item.get('id'), item.get('title'), 
+                                            item.get('username'), item.get('url')))
