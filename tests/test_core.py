@@ -2,17 +2,14 @@ import pytest
 import os
 import sys
 
-# Добавляем корневую папку в путь для импортов
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'src')))
 
-from src.core.crypto.placeholder import AES256Placeholder
-from src.core.events import EventBus, Event
-from src.database.db import DatabaseHelper
-
-#FIXTURES (TEST-3)
+from core.crypto.placeholder import AES256Placeholder
+from core.events import EventBus, Event
+from database.db import DatabaseHelper
 @pytest.fixture
 def temp_db(tmp_path):
-    """Создает временную БД для тестов."""
+    #Создает временную БД для тестов.
     db_file = tmp_path / "test.db"
     db = DatabaseHelper(str(db_file))
     yield db
@@ -21,7 +18,6 @@ def temp_db(tmp_path):
 @pytest.fixture
 def crypto_service():
     return AES256Placeholder()
-
 
 # TEST-1: Тесты шифрования
 def test_encryption_placeholder(crypto_service):
