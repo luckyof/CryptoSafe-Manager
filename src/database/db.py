@@ -1,12 +1,14 @@
+# src/database/db.py
 import sqlite3
 import threading
 import os
 import shutil
 from typing import Optional
+import logging
+
+logger = logging.getLogger("Database")
 
 class DatabaseHelper:
-    # Помощник для работы с SQLite. Потокобезопасный.
-    # Требования: DB-1, DB-3, DB-4
     def __init__(self, db_path: str):
         self.db_path = db_path
         self._local = threading.local()
@@ -15,7 +17,6 @@ class DatabaseHelper:
     def _get_connection(self) -> sqlite3.Connection:
         if not hasattr(self._local, 'connection'):
             self._local.connection = sqlite3.connect(self.db_path, check_same_thread=False)
-            # Включаем поддержку внешних ключей
             self._local.connection.execute("PRAGMA foreign_keys = ON")
         return self._local.connection
 
@@ -23,6 +24,10 @@ class DatabaseHelper:
         conn = self._get_connection()
         cursor = conn.cursor()
         
+        # Проверка версии для миграции (простая реализация для спринта)
+        cursor.execute("PRAGMA user_version")
+        version = cursor.fetchone()[0]
+
         # 1. Таблица записей хранилища
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS vault_entries (
@@ -38,7 +43,7 @@ class DatabaseHelper:
             )
         """)
 
-        # 2. Журнал аудита (для Спринта 5)
+        # 2. Журнал аудита
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS audit_log (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -60,25 +65,24 @@ class DatabaseHelper:
             )
         """)
 
-        # 4. Хранилище ключей (для Спринта 2)
+        # 4. Хранилище ключей (ОБНОВЛЕНО ДЛЯ СПРИНТА 2 - DB-1)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS key_store (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                key_type TEXT,
-                salt BLOB,
-                hash BLOB,
-                params TEXT
+                key_type TEXT UNIQUE NOT NULL,
+                key_data BLOB,
+                version INTEGER DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
         
-        #Создание индексов 
+        # Индексы
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_vault_title ON vault_entries(title)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_vault_username ON vault_entries(username)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_settings_key ON settings(setting_key)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp)")
         
-        # Установка версии схемы
-        cursor.execute("PRAGMA user_version = 1")
+        # Установка версии схемы (для будущих миграций)
+        if version < 2:
+            cursor.execute("PRAGMA user_version = 2")
         
         conn.commit()
 
@@ -101,11 +105,8 @@ class DatabaseHelper:
         cursor.execute(query, params)
         return cursor.fetchone()
 
-    #Механизм резервного копирования 
     def backup(self, backup_path: str) -> bool:
-        """Создает копию файла базы данных."""
         try:
-            # Закрываем текущее соединение для надежности копии
             if hasattr(self._local, 'connection'):
                 self._local.connection.close()
                 del self._local.connection
@@ -115,14 +116,8 @@ class DatabaseHelper:
                 return True
             return False
         except Exception as e:
-            print(f"Backup error: {e}")
+            logger.error(f"Backup error: {e}")
             return False
-
-    def restore(self, backup_path: str) -> bool:
-        """Восстанавливает базу данных из файла (заглушка для Спринта 8)."""
-        # Логика восстановления будет реализована в Спринте 8
-        #проверяем наличие файла
-        return os.path.exists(backup_path)
 
     def close(self):
         if hasattr(self._local, 'connection'):

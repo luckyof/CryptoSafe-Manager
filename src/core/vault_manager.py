@@ -1,43 +1,29 @@
-# src/core/vault_manager.py
-from typing import List, Dict, Optional
+from typing import List, Dict
 from database.db import DatabaseHelper
-from core.crypto.placeholder import AES256Placeholder
+from core.crypto.abstract import EncryptionService
 
 class VaultManager:
-    # Сервисный слой для управления записями хранилища.
-    # Реализует требование DB-2: шифрование перед вставкой.
-    def __init__(self, db: DatabaseHelper, encryption_service: AES256Placeholder, key: bytes):
+    def __init__(self, db: DatabaseHelper, encryption_service: EncryptionService):
         self.db = db
         self.crypto = encryption_service
-        self.key = key
 
     def add_entry(self, title: str, username: str, password: str, url: str = "", notes: str = ""):
-        #Добавление записи с шифрованием пароля
+        # ARC-2: Шифрование через сервис, ключ берется из KeyManager внутри
+        encrypted_pass = self.crypto.encrypt(password.encode())
         
-        # 1. Шифруем пароль (DB-2)
-        encrypted_pass = self.crypto.encrypt(password.encode(), self.key)
-        
-        # 2. Вставляем в БД уже зашифрованные данные
         query = """
             INSERT INTO vault_entries (title, username, encrypted_password, url, notes)
             VALUES (?, ?, ?, ?, ?)
         """
         self.db.execute(query, (title, username, encrypted_pass, url, notes))
-        
-        # 3. Возвращаем ID созданной записи
-        # (В sqlite3 lastrowid можно получить через курсор, но для упрощения вернем None или доработаем db.execute)
-        # Для тестов достаточно, что данные записаны.
 
     def get_all_entries(self) -> List[Dict]:
-        #Получение всех записей с расшифровкой паролей (для отображения).
         rows = self.db.fetchall("SELECT id, title, username, encrypted_password, url FROM vault_entries")
-        
         result = []
         for row in rows:
-            # Пытаемся расшифровать пароль
             try:
-                decrypted_pass = self.crypto.decrypt(row[3], self.key).decode()
-            except:
+                decrypted_pass = self.crypto.decrypt(row[3]).decode()
+            except Exception:
                 decrypted_pass = "[DECRYPT_ERROR]"
 
             result.append({
@@ -48,3 +34,12 @@ class VaultManager:
                 "url": row[4]
             })
         return result
+    
+    def get_all_entries_raw(self) -> List[Dict]:
+        """Получение записей без расшифровки (для смены пароля)."""
+        rows = self.db.fetchall("SELECT id, encrypted_password FROM vault_entries")
+        return [{"id": r[0], "enc_data": r[1]} for r in rows]
+    
+    def update_entry_password(self, entry_id: int, new_encrypted_data: bytes):
+        self.db.execute("UPDATE vault_entries SET encrypted_password = ? WHERE id = ?", 
+                        (new_encrypted_data, entry_id))
