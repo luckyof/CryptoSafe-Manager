@@ -1,7 +1,7 @@
-# src/gui/dialogs/change_password_dialog.py
+
 import tkinter as tk
 from tkinter import ttk, messagebox
-import logging  # ДОБАВЛЕН ИМПОРТ
+import logging
 from ..widgets.password_entry import PasswordEntry
 
 # ИНИЦИАЛИЗАЦИЯ ЛОГГЕРА
@@ -69,11 +69,10 @@ class ChangePasswordDialog(tk.Toplevel):
         try:
             self.config(cursor="watch")
             self.update()
-            
+
             self.key_manager.change_password(old_p, new_p, self.vault_manager, self.crypto_service)
             messagebox.showinfo("Успех", "Мастер-пароль успешно изменен.", parent=self)
-            self.destroy()
-            
+
         except ValueError as e:
             messagebox.showerror("Ошибка", str(e), parent=self)
         except Exception as e:
@@ -81,4 +80,10 @@ class ChangePasswordDialog(tk.Toplevel):
             logger.error(f"Change password error: {e}")
             messagebox.showerror("Критическая ошибка", f"Не удалось сменить пароль:\n{e}", parent=self)
         finally:
-            self.config(cursor="")
+            # Сбрасываем курсор только если окно ещё существует
+            try:
+                self.config(cursor="")
+            except tk.TclError:
+                pass  # Окно уже уничтожено
+        
+        self.destroy()

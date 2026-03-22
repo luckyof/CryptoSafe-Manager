@@ -1,4 +1,4 @@
-# src/database/db.py
+
 import sqlite3
 import threading
 import os
@@ -92,6 +92,39 @@ class DatabaseHelper:
         cursor.execute(query, params)
         conn.commit()
         return cursor.lastrowid
+
+    def execute_many(self, queries: list):
+        """
+        Выполнение нескольких запросов в одной транзакции.
+        CHANGE-4: Атомарное обновление БД.
+        """
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        try:
+            for query, params in queries:
+                cursor.execute(query, params if params else ())
+            conn.commit()
+            return True
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Transaction failed, rolled back: {e}")
+            return False
+
+    def begin_transaction(self):
+        """Начало транзакции."""
+        conn = self._get_connection()
+        conn.execute("BEGIN IMMEDIATE")
+
+    def commit_transaction(self):
+        """Фиксация транзакции."""
+        conn = self._get_connection()
+        conn.commit()
+
+    def rollback_transaction(self):
+        """Откат транзакции."""
+        conn = self._get_connection()
+        conn.rollback()
+        logger.warning("Transaction rolled back")
 
     def fetchall(self, query: str, params: tuple = ()):
         conn = self._get_connection()

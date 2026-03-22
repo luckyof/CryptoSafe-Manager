@@ -1,1 +1,9 @@
+# Core dependencies
+argon2-cffi>=21.3.0
+cryptography>=38.0.0
+
+# Testing
 pytest>=7.0.0
+
+# Optional: OS keychain integration
+# keyring>=23.0.0
