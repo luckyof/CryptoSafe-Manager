@@ -101,7 +101,7 @@ def test_config_loading(tmp_path):
     with open(config_file, 'w') as f:
         json.dump({"db_path": str(tmp_path / "test.db")}, f)
     
-    # Подменяем путь домашней директории (хитрость для тестов)
+    # Подменяем путь домашней директории 
     from unittest.mock import patch
     with patch('os.path.expanduser', return_value=str(tmp_path)):
         cfg = ConfigManager()

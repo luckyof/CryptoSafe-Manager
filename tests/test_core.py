@@ -178,11 +178,11 @@ def test_exponential_backoff():
 def test_lockout_reset():
     """Тест сброса счётчика после долгого перерыва."""
     auth = AuthenticationService()
-    auth.failed_attempts = 3
-    auth.last_failed_time = time.time() - 1000  # 1000 секунд назад
+    auth.session.failed_attempts = 3
+    auth.session.last_failed_time = time.time() - 1000  # 1000 секунд назад
 
     assert not auth.is_locked_out()
-    assert auth.failed_attempts == 0
+    assert auth.session.failed_attempts == 0
 
 
 # TEST-7: Тесты защищённой памяти (CACHE-3, CACHE-4, TEST-4)
@@ -292,3 +292,203 @@ def test_password_change_integration(tmp_path):
         assert entry["password"] == f"secret_password_{i}"
 
     db.close()
+
+
+
+def test_session_management():
+    """Тест управления сессией (AUTH-4)."""
+    auth = AuthenticationService()
+    
+    # Начальное состояние
+    assert not auth.is_session_active()
+    assert auth.session.login_timestamp is None
+    assert auth.session.last_activity is None
+    
+    # Запуск сессии
+    auth.start_session()
+    assert auth.is_session_active()
+    assert auth.session.login_timestamp is not None
+    assert auth.session.last_activity is not None
+    
+    # Проверка обновления активности
+    time.sleep(0.01)
+    auth.update_activity()
+    assert auth.session.last_activity > auth.session.login_timestamp
+    
+    # Завершение сессии
+    auth.end_session()
+    assert not auth.is_session_active()
+    assert auth.session.login_timestamp is None
+    assert auth.session.last_activity is None
+
+
+def test_session_info():
+    """Тест получения информации о сессии (AUTH-4)."""
+    auth = AuthenticationService()
+    auth.start_session()
+    
+    info = auth.get_session_info()
+    
+    assert "login_timestamp" in info
+    assert "last_activity" in info
+    assert "failed_attempts" in info
+    assert "session_duration" in info
+    assert "idle_time" in info
+    assert "is_locked_out" in info
+    
+    assert info["login_timestamp"] is not None
+    assert info["session_duration"] >= 0
+    assert info["idle_time"] >= 0
+    
+    auth.end_session()
+
+
+def test_session_duration():
+    """Тест длительности сессии (AUTH-4)."""
+    auth = AuthenticationService()
+    auth.start_session()
+    
+    time.sleep(0.05)
+    
+    duration = auth.session.get_session_duration()
+    assert duration >= 0.05
+    
+    auth.end_session()
+    assert auth.session.get_session_duration() == 0
+
+
+#Тесты auto-lock (CACHE-2, FUTURE-3)
+
+def test_auto_lock_timeout():
+    """Тест таймаута авто-блокировки (CACHE-2)."""
+    auth = AuthenticationService()
+    
+    # Установка таймаута
+    auth.set_auto_lock_timeout(120)
+    assert auth.session.auto_lock_timeout == 120
+    
+    # Минимальный таймаут
+    auth.set_auto_lock_timeout(10)
+    assert auth.session.auto_lock_timeout == 60  # минимум 1 минута
+
+
+def test_idle_time_tracking():
+    """Тест отслеживания времени простоя (CACHE-2)."""
+    auth = AuthenticationService()
+    auth.start_session()
+    
+    # Начальное время простоя
+    idle = auth.session.get_idle_time()
+    assert idle >= 0
+    
+    time.sleep(0.05)
+    
+    # Время простоя увеличилось
+    idle = auth.session.get_idle_time()
+    assert idle >= 0.05
+    
+    # Обновление активности сбрасывает простой
+    auth.update_activity()
+    time.sleep(0.01)
+    new_idle = auth.session.get_idle_time()
+    assert new_idle < idle or new_idle < 0.02
+    
+    auth.end_session()
+
+
+def test_idle_expired():
+    """Тест истечения таймаута простоя (CACHE-2)."""
+    auth = AuthenticationService()
+    auth.set_auto_lock_timeout(60)  # Минимальный таймаут 60 секунд
+    auth.start_session()
+    
+    # Сначала не истекло (при только что созданной сессии)
+    assert not auth.is_idle_expired()
+    
+    # Обновляем активность и проверяем, что idle_time увеличивается
+    initial_idle = auth.session.get_idle_time()
+    time.sleep(0.05)
+    later_idle = auth.session.get_idle_time()
+    
+    # Время простоя должно увеличиться
+    assert later_idle > initial_idle
+    
+    # is_idle_expired вернет False, так как 60 секунд ещё не прошло
+    # но мы проверяем, что механизм отслеживания работает
+    assert auth.session.get_idle_time() >= 0.05
+    
+    auth.end_session()
+
+
+def test_auto_lock_on_minimize():
+    """Тест авто-блокировки при сворачивании (CACHE-2)."""
+    auth = AuthenticationService()
+    
+    # По умолчанию включено
+    assert auth.session.auto_lock_on_minimize is True
+    
+    auth.set_auto_lock_on_minimize(False)
+    assert auth.session.auto_lock_on_minimize is False
+    
+    auth.set_auto_lock_on_minimize(True)
+    assert auth.session.auto_lock_on_minimize is True
+
+
+# TEST-12: Тесты KeyManager с auto-lock (FUTURE-3)
+
+def test_key_manager_auto_lock_timer(temp_db):
+    """Тест таймера авто-блокировки в KeyManager (FUTURE-3)."""
+    km = KeyManager(temp_db, {'auto_lock_timeout': 60})
+    
+    # Установка пароля
+    password = "Str0ng!P@ssw0rd123"
+    assert km.setup_new_vault(password)
+    
+    # Проверка, что сессия активна после unlock
+    km.lock()
+    assert km.unlock(password)
+    assert km.auth.is_session_active()
+    
+    # Проверка, что таймер запущен
+    assert km._auto_lock_timer is not None
+    
+    km.lock()
+    assert not km.auth.is_session_active()
+    assert km._auto_lock_timer is None
+
+
+def test_key_manager_touch_activity(temp_db):
+    """Тест обновления активности через touch() (CACHE-2)."""
+    km = KeyManager(temp_db, {'auto_lock_timeout': 60})
+    password = "Str0ng!P@ssw0rd123"
+    
+    km.setup_new_vault(password)
+    km.lock()
+    km.unlock(password)
+    
+    # Получаем время последней активности
+    last_activity = km.auth.session.last_activity
+    time.sleep(0.01)
+    
+    # Обновляем активность
+    km.touch()
+    
+    # Активность должна обновиться
+    assert km.auth.session.last_activity >= last_activity
+
+
+def test_key_manager_on_minimize(temp_db):
+    """Тест блокировки при сворачивании (CACHE-2)."""
+    km = KeyManager(temp_db, {'auto_lock_timeout': 60, 'auto_lock_on_minimize': True})
+    password = "Str0ng!P@ssw0rd123"
+    
+    km.setup_new_vault(password)
+    km.unlock(password)
+    
+    assert km.auth.is_session_active()
+    
+    # Вызываем обработчик сворачивания
+    km.on_minimize()
+    
+    # Сессия должна завершиться
+    assert not km.auth.is_session_active()

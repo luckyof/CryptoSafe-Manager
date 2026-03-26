@@ -45,9 +45,12 @@ class MainWindow(tk.Tk):
         self.after(100, self.startup_sequence)
         
         # --- CACHE-2, AUTH-4: Автоблокировка ---
-        self.auto_lock_check_interval = 60000 # 1 минута
+        self.auto_lock_check_interval = 60000  # 1 минута
         self.after(self.auto_lock_check_interval, self.check_inactivity)
-        
+
+        # --- CACHE-2: Обработчик сворачивания ---
+        self.bind("<Unmap>", self.on_minimize_event)
+
         # --- CACHE-4: Очистка при выходе ---
         self.protocol("WM_DELETE_WINDOW", self.on_close)
 
@@ -139,13 +142,21 @@ class MainWindow(tk.Tk):
 
     # --- БЕЗОПАСНОСТЬ И БЛОКИРОВКА ---
 
+    def on_minimize_event(self, event):
+        """CACHE-2: Обработчик сворачивания приложения."""
+        if self.key_manager:
+            self.key_manager.on_minimize()
+
     def check_inactivity(self):
         """CACHE-2: Проверка простоя."""
-        if not state_manager.is_locked:
-            timeout = self.app_config.get("auto_lock_timeout", 5) # минут
+        if self.key_manager and not state_manager.is_locked:
+            timeout = self.app_config.get("auto_lock_timeout", 60)  # минут (по умолчанию 1 час)
             if state_manager.check_inactivity(timeout):
                 self.lock_application()
-        
+            else:
+                # Обновляем активность в KeyManager (FUTURE-3)
+                self.key_manager.touch()
+
         self.after(self.auto_lock_check_interval, self.check_inactivity)
 
     def lock_application(self):
