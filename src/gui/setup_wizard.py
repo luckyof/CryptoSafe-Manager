@@ -2,7 +2,6 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from .widgets.password_entry import PasswordEntry
 from core.config import ConfigManager
-# ДОБАВЛЯЕМ ИМПОРТ СЕРВИСА АУТЕНТИФИКАЦИИ
 from core.crypto.authentication import AuthenticationService
 
 class SetupWizard(tk.Toplevel):
@@ -83,7 +82,7 @@ class SetupWizard(tk.Toplevel):
         if p1 != p2:
             messagebox.showerror("Ошибка", "Пароли не совпадают.")
             return
-            
+
         # ИЗМЕНЕНО: Используем AuthenticationService для строгой проверки (HASH-4)
         auth_service = AuthenticationService()
         is_valid, msg = auth_service.validate_password_strength(p1)

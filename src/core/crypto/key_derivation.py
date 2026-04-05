@@ -37,7 +37,6 @@ class KeyDerivationService:
     def _validate_param(self, value, min_val, max_val, name):
         if not isinstance(value, int):
             logger.warning(f"Invalid type for {name}, using default.")
-            # Здесь стоит вернуть дефолт, но для простоты вернем value, если оно число
         if value < min_val:
             logger.warning(f"{name} too low ({value}), clamping to {min_val}")
             return min_val

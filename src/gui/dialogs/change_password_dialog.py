@@ -58,6 +58,7 @@ class ChangePasswordDialog(tk.Toplevel):
         new_p = self.new_pass.get()
         conf_p = self.confirm_pass.get()
 
+        # 1. Проверка заполнения полей
         if not old_p or not new_p:
             messagebox.showerror("Ошибка", "Заполните все поля.", parent=self)
             return
@@ -66,24 +67,31 @@ class ChangePasswordDialog(tk.Toplevel):
             messagebox.showerror("Ошибка", "Новые пароли не совпадают.", parent=self)
             return
 
+        if old_p == new_p:
+            messagebox.showerror("Ошибка", "Новый пароль должен отличаться от текущего.", parent=self)
+            return
+
+        # 2. Валидация нового пароля (не закрываем окно при ошибке)
+        is_valid, msg = self.key_manager.auth.validate_password_strength(new_p)
+        if not is_valid:
+            messagebox.showerror("Слабый пароль", msg, parent=self)
+            return
+
         try:
             self.config(cursor="watch")
             self.update()
 
             self.key_manager.change_password(old_p, new_p, self.vault_manager, self.crypto_service)
             messagebox.showinfo("Успех", "Мастер-пароль успешно изменен.", parent=self)
+            self.destroy()
 
         except ValueError as e:
             messagebox.showerror("Ошибка", str(e), parent=self)
         except Exception as e:
-            # Теперь logger определен
             logger.error(f"Change password error: {e}")
             messagebox.showerror("Критическая ошибка", f"Не удалось сменить пароль:\n{e}", parent=self)
         finally:
-            # Сбрасываем курсор только если окно ещё существует
             try:
                 self.config(cursor="")
             except tk.TclError:
-                pass  # Окно уже уничтожено
-        
-        self.destroy()
+                pass

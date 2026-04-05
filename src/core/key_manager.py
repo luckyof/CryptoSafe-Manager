@@ -149,14 +149,14 @@ class KeyManager:
     #СМЕНА ПАРОЛЯ 
 
     def change_password(self, old_password: str, new_password: str, vault_manager: 'VaultManager', crypto_service) -> bool:
-        # 1. Проверка старого пароля
-        if not self.unlock(old_password):
-            raise ValueError("Неверный текущий пароль.")
-
-        # 2. Валидация нового
+        # 1. Валидация нового пароля ПЕРЕД любыми операциями (чтобы не блокировать сессию при слабом пароле)
         valid, msg = self.auth.validate_password_strength(new_password)
         if not valid:
             raise ValueError(msg)
+
+        # 2. Проверка старого пароля
+        if not self.unlock(old_password):
+            raise ValueError("Неверный текущий пароль.")
 
         # Сохраняем старые ключи для отката
         old_auth_hash = self.db.fetchone("SELECT key_data FROM key_store WHERE key_type = 'auth_hash'")[0]
