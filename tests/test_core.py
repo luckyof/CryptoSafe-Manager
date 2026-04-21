@@ -13,6 +13,7 @@ from core.crypto.key_derivation import KeyDerivationService
 from core.events import EventBus, Event
 from core.key_manager import KeyManager
 from core.vault_manager import VaultManager
+from core.vault.entry_manager import EntryManager
 from database.db import DatabaseHelper
 
 
@@ -77,12 +78,13 @@ def test_db_initialization(temp_db):
 
 def test_db_insert_and_fetch(temp_db):
     temp_db.execute(
-        "INSERT INTO vault_entries (title, username) VALUES (?, ?)",
-        ("Test Site", "user1")
+        "INSERT INTO vault_entries (id, title, username) VALUES (?, ?, ?)",
+        ("test-id-1", "Test Site", "user1")
     )
-    row = temp_db.fetchone("SELECT * FROM vault_entries WHERE title = ?", ("Test Site",))
+    row = temp_db.fetchone("SELECT id, title, username FROM vault_entries WHERE title = ?", ("Test Site",))
     assert row is not None
-    assert row[1] == "Test Site"
+    assert row[1] == "Test Site"  # title
+    assert row[2] == "user1"      # username
 
 
 # TEST-3: Тесты событий
@@ -250,30 +252,37 @@ def test_password_change_integration(tmp_path):
     key_manager = KeyManager(db)
     crypto = AES256Placeholder()
     crypto.set_key_manager(key_manager)
-    vault_manager = VaultManager(db, crypto)
 
     # 1. Создаём хранилище с паролем "A"
     password_a = "Str0ng!P@ssw0rdA"
     assert key_manager.setup_new_vault(password_a)
+    
+    # Ключ уже установлен после setup_new_vault, создаём EntryManager
+    entry_manager = EntryManager(db, key_manager)
 
-    # 2. Добавляем 10 записей
+    # 2. Добавляем 10 записей через EntryManager
     for i in range(10):
-        vault_manager.add_entry(
-            title=f"Site {i}",
-            username=f"user{i}",
-            password=f"secret_password_{i}",
-            url=f"https://site{i}.com"
-        )
+        entry_manager.create_entry({
+            "title": f"Site {i}",
+            "username": f"user{i}",
+            "password": f"secret_password_{i}",
+            "url": f"https://site{i}.com",
+            "notes": "",
+            "category": "",
+            "tags": [],
+        })
 
     # 3. Проверяем, что все записи доступны
-    entries = vault_manager.get_all_entries()
+    entries = entry_manager.get_all_entries(include_decrypted_password=True)
     assert len(entries) == 10
-    for i, entry in enumerate(entries):
-        assert entry["password"] == f"secret_password_{i}"
+    # Проверяем что все пароли на месте (независимо от порядка)
+    passwords = {e["password"] for e in entries}
+    for i in range(10):
+        assert f"secret_password_{i}" in passwords
 
     # 4. Меняем пароль на "B"
     password_b = "Str0ng!P@ssw0rdB"
-    assert key_manager.change_password(password_a, password_b, vault_manager, crypto)
+    assert key_manager.change_password(password_a, password_b, entry_manager, crypto)
 
     # 5. Проверяем, что старый пароль не работает
     assert not key_manager.unlock(password_a)
@@ -286,10 +295,13 @@ def test_password_change_integration(tmp_path):
 
     # 7. Проверяем, что все записи доступны с новым паролем
     crypto.set_key_manager(key_manager)  # Обновляем ссылку после unlock
-    entries = vault_manager.get_all_entries()
+    entry_manager = EntryManager(db, key_manager)  # Пересоздаём с новым ключом
+    entries = entry_manager.get_all_entries(include_decrypted_password=True)
     assert len(entries) == 10
-    for i, entry in enumerate(entries):
-        assert entry["password"] == f"secret_password_{i}"
+    # Проверяем что все пароли на месте
+    passwords = {e["password"] for e in entries}
+    for i in range(10):
+        assert f"secret_password_{i}" in passwords
 
     db.close()
 

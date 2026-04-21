@@ -8,14 +8,14 @@ from ..widgets.password_entry import PasswordEntry
 logger = logging.getLogger("ChangePasswordDialog")
 
 class ChangePasswordDialog(tk.Toplevel):
-    def __init__(self, parent, key_manager, vault_manager, crypto_service):
+    def __init__(self, parent, key_manager, entry_manager, crypto_service):
         super().__init__(parent)
         self.title("Смена мастер-пароля")
         self.geometry("450x300")
         self.resizable(False, False)
-        
+
         self.key_manager = key_manager
-        self.vault_manager = vault_manager
+        self.entry_manager = entry_manager
         self.crypto_service = crypto_service
         
         self.transient(parent)

@@ -28,20 +28,33 @@ class DatabaseHelper:
         cursor.execute("PRAGMA user_version")
         version = cursor.fetchone()[0]
 
-        # 1. Таблица записей хранилища
+        # 1. Таблица записей хранилища (ОБНОВЛЕНО ДЛЯ СПРИНТА 3 - DATA-1, DB-1)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS vault_entries (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                title TEXT NOT NULL,
+                id TEXT PRIMARY KEY,
+                encrypted_data BLOB,
+                title TEXT,
                 username TEXT,
                 encrypted_password BLOB,
                 url TEXT,
                 notes TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                created_at TIMESTAMP,
+                updated_at TIMESTAMP,
                 tags TEXT
             )
         """)
+
+        # Добавляем колонку encrypted_data если её нет (миграция со Спринта 2)
+        try:
+            cursor.execute("ALTER TABLE vault_entries ADD COLUMN encrypted_data BLOB")
+        except Exception:
+            pass  # Колонка уже существует
+
+        # Индексы (DB-1)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_vault_created_at ON vault_entries(created_at)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_vault_updated_at ON vault_entries(updated_at)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_vault_tags ON vault_entries(tags)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_vault_title ON vault_entries(title)")
 
         # 2. Журнал аудита
         cursor.execute("""
@@ -81,8 +94,8 @@ class DatabaseHelper:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_settings_key ON settings(setting_key)")
         
         # Установка версии схемы (для будущих миграций)
-        if version < 2:
-            cursor.execute("PRAGMA user_version = 2")
+        if version < 3:
+            cursor.execute("PRAGMA user_version = 3")
         
         conn.commit()
 

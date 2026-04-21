@@ -148,8 +148,8 @@ class KeyManager:
 
     #СМЕНА ПАРОЛЯ 
 
-    def change_password(self, old_password: str, new_password: str, vault_manager: 'VaultManager', crypto_service) -> bool:
-        # 1. Валидация нового пароля ПЕРЕД любыми операциями (чтобы не блокировать сессию при слабом пароле)
+    def change_password(self, old_password: str, new_password: str, entry_manager: 'EntryManager', crypto_service) -> bool:
+        # 1. Валидация нового пароля ПЕРЕД любыми операциями
         valid, msg = self.auth.validate_password_strength(new_password)
         if not valid:
             raise ValueError(msg)
@@ -164,41 +164,56 @@ class KeyManager:
         old_key_bytes = self.storage.get_key()
 
         try:
-            # 3. Получаем все данные
-            raw_entries = vault_manager.get_all_entries_raw()
+            # 3. Получаем все данные (используем entry_manager)
+            raw_entries = self.db.fetchall("SELECT id, encrypted_data FROM vault_entries")
 
             # 4. Генерируем новые ключи
             new_auth_hash = self.derivation.create_auth_hash(new_password)
             new_enc_salt = self.derivation.generate_salt()
             new_enc_key = self.derivation.derive_encryption_key(new_password, new_enc_salt)
 
-            # 5. Перешифровка
+            # 5. Перешифровка (данные уже в формате AES-256-GCM, просто копируем)
+            # Для Sprint 3: encrypted_data — это полный AES-256-GCM blob
+            # При смене пароля нужно расшифровать и зашифровать заново
             re_encrypted_data = []
 
-            # Трюк: создаем временный сервис для шифрования новым ключом
-            temp_crypto = type(crypto_service)()
+            from core.vault.encryption_service import AES256GCMService
+
+            # Текущий сервис для расшифровки
+            decrypt_service = AES256GCMService()
+            decrypt_service.set_key_manager(self)  # self — KeyManager
+
+            # Новый сервис для шифрования
             temp_storage = SecureMemoryCache()
             temp_storage.store_key(new_enc_key)
-            temp_crypto.set_key_manager(type('FakeKM', (), {'storage': temp_storage})())
 
-            for entry in raw_entries:
-                # Расшифровываем старым (текущим в self.storage)
-                decrypted_bytes = crypto_service.decrypt(entry['enc_data'])
-                # Шифруем новым
-                new_cipher = temp_crypto.encrypt(decrypted_bytes)
-                re_encrypted_data.append((entry['id'], new_cipher))
+            encrypt_service = AES256GCMService()
+            fake_km = type('FakeKM', (), {'storage': temp_storage})()
+            encrypt_service.set_key_manager(fake_km)
 
-                # Немедленная очистка расшифрованных данных из памяти
-                del decrypted_bytes
+            for entry_id, encrypted_data in raw_entries:
+                try:
+                    # Расшифровываем старым ключом
+                    plaintext = decrypt_service.decrypt(encrypted_data)
+                    # Шифруем новым ключом
+                    new_encrypted = encrypt_service.encrypt(plaintext)
+                    re_encrypted_data.append((entry_id, new_encrypted))
+
+                    # Немедленная очистка
+                    del plaintext
+                except Exception as decrypt_error:
+                    logger.error(f"Failed to re-encrypt entry {entry_id}: {decrypt_error}")
+                    # Пропускаем проблемную запись (можно изменить стратегию)
+                    continue
 
             # 6. Атомарное обновление БД (CHANGE-4)
             queries = []
 
             # Обновляем данные записей
-            for eid, new_ciph in re_encrypted_data:
+            for eid, new_enc_data in re_encrypted_data:
                 queries.append((
-                    "UPDATE vault_entries SET encrypted_password = ? WHERE id = ?",
-                    (new_ciph, eid)
+                    "UPDATE vault_entries SET encrypted_data = ? WHERE id = ?",
+                    (new_enc_data, eid)
                 ))
 
             # Обновляем ключи
