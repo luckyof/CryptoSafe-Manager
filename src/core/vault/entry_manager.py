@@ -103,6 +103,7 @@ class EntryManager:
 
         # CRUD-2: Транзакционная вставка
         try:
+            self.db.begin_transaction()
             self.db.execute(
                 """INSERT INTO vault_entries 
                    (id, encrypted_data, created_at, updated_at, tags) 
@@ -110,7 +111,10 @@ class EntryManager:
                 (entry_id, encrypted_blob, now, now,
                  json.dumps(plaintext_data.get("tags", []), ensure_ascii=False))
             )
+            self._audit("ENTRY_CREATED", entry_id, f"Created entry: {plaintext_data['title']}")
+            self.db.commit_transaction()
         except Exception as e:
+            self.db.rollback_transaction()
             logger.error(f"Failed to create entry: {e}")
             raise RuntimeError(f"Не удалось создать запись: {e}")
 
@@ -475,6 +479,8 @@ class EntryManager:
     def _audit(self, action: str, entry_id: str, details: str):
         """Запись в журнал аудита."""
         try:
+            if action == "ENTRY_CREATED" and not getattr(self.db._local, "explicit_transaction", False):
+                return
             self.db.execute(
                 "INSERT INTO audit_log (action, entry_id, details) VALUES (?, ?, ?)",
                 (action, entry_id, details)

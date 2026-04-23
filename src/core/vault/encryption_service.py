@@ -28,19 +28,23 @@ class AES256GCMService:
     def __init__(self):
         self._aesgcm: Optional[AESGCM] = None
         self._key_manager = None
+        self._active_key: Optional[bytes] = None
 
     def set_key_manager(self, key_manager):
         """ARC-2: Внедрение зависимости KeyManager."""
         self._key_manager = key_manager
-        self._init_cipher()
+        self._aesgcm = None
+        self._active_key = None
 
-    def _init_cipher(self):
+    def _get_normalized_key(self) -> bytes:
         """Инициализация AESGCM с ключом из KeyManager."""
         if self._key_manager is None:
             raise RuntimeError("KeyManager not set. Call set_key_manager() first.")
 
         key = self._key_manager.storage.get_key()
         if key is None:
+            self._aesgcm = None
+            self._active_key = None
             raise RuntimeError("Encryption key not available in KeyManager.")
 
         if len(key) != 32:
@@ -50,8 +54,15 @@ class AES256GCMService:
             else:
                 key = key[:32]
 
-        self._aesgcm = AESGCM(key)
-        logger.debug("AES-256-GCM cipher initialized")
+        return key
+
+    def _ensure_cipher(self):
+        """Ленивая инициализация шифра после появления ключа в памяти."""
+        key = self._get_normalized_key()
+        if self._aesgcm is None or self._active_key != key:
+            self._aesgcm = AESGCM(key)
+            self._active_key = key
+            logger.debug("AES-256-GCM cipher initialized")
 
     def encrypt(self, data: bytes, associated_data: Optional[bytes] = None) -> bytes:
         """
@@ -64,8 +75,7 @@ class AES256GCMService:
         Returns:
             BLOB формата: nonce (12B) || ciphertext || tag (16B)
         """
-        if self._aesgcm is None:
-            self._init_cipher()
+        self._ensure_cipher()
 
         # ENC-2: Уникальный 12-byte nonce
         nonce = os.urandom(NONCE_SIZE)
@@ -94,8 +104,7 @@ class AES256GCMService:
         Raises:
             ValueError: Если blob слишком короткий или tag невалиден
         """
-        if self._aesgcm is None:
-            self._init_cipher()
+        self._ensure_cipher()
 
         # ENC-4: Извлекаем nonce и ciphertext+tag
         if len(encrypted_blob) < NONCE_SIZE + TAG_SIZE:

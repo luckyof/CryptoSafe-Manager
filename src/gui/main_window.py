@@ -3,7 +3,6 @@ from tkinter import ttk, messagebox
 import os
 import logging
 
-# Виджеты
 from .widgets.secure_table import SecureTable
 from .widgets.audit_log_viewer import AuditLogViewer
 from .widgets.search_widget import SearchWidget
@@ -13,7 +12,6 @@ from .dialogs.login_dialog import LoginDialog
 from .dialogs.change_password_dialog import ChangePasswordDialog
 from .dialogs.entry_dialog import EntryDialog
 
-# Ядро
 from core.config import ConfigManager
 from core.state_manager import state_manager
 from core.events import event_bus
@@ -39,31 +37,22 @@ class MainWindow(tk.Tk):
         self.encryption_service = None
         self.entry_manager = None
 
-        # UI
         self.create_toolbar()
         self.create_search_area()
         self.create_main_area()
         self.create_menu()
         self.create_status_bar()
 
-        # Логика запуска
         self.after(100, self.startup_sequence)
 
-        # --- CACHE-2, AUTH-4: Автоблокировка ---
-        self.auto_lock_check_interval = 60000  # 1 минута
+        self.auto_lock_check_interval = 60000
         self.after(self.auto_lock_check_interval, self.check_inactivity)
 
-        # --- CACHE-2: Обработчик сворачивания ---
         self.bind("<Unmap>", self.on_minimize_event)
-
-        # --- CACHE-4: Очистка при выходе ---
         self.protocol("WM_DELETE_WINDOW", self.on_close)
-
-    # --- ЗАПУСК И ИНИЦИАЛИЗАЦИЯ ---
 
     def startup_sequence(self):
         db_path = self.app_config.db_path
-
         if not os.path.exists(db_path):
             self.run_setup_wizard()
         else:
@@ -90,18 +79,13 @@ class MainWindow(tk.Tk):
             self.app_config.set("db_path", db_path)
             self.app_config.attach_database(self.db)
 
-            # KeyManager
             self.key_manager = KeyManager(self.db)
             if not self.key_manager.setup_new_vault(password):
                 return False
 
-            # Crypto Service (AES-256-GCM)
             self.encryption_service = AES256GCMService()
             self.encryption_service.set_key_manager(self.key_manager)
-
-            # EntryManager (новый вместо старого VaultManager)
             self.entry_manager = EntryManager(self.db, self.key_manager)
-
             return True
         except Exception as e:
             logger.error(f"Init error: {e}")
@@ -111,25 +95,21 @@ class MainWindow(tk.Tk):
         try:
             self.db = DatabaseHelper(self.app_config.db_path)
             self.app_config.attach_database(self.db)
-
             self.key_manager = KeyManager(self.db)
-            self.encryption_service = AES256GCMService()
-            self.encryption_service.set_key_manager(self.key_manager)
-
-            # EntryManager создаем до входа
-            self.entry_manager = EntryManager(self.db, self.key_manager)
 
             login = LoginDialog(self, self.key_manager)
-
             if login.success:
+                self.encryption_service = AES256GCMService()
+                self.encryption_service.set_key_manager(self.key_manager)
+                self.entry_manager = EntryManager(self.db, self.key_manager)
                 state_manager.login("default_user")
                 self.on_login_success()
             else:
                 self.quit()
         except Exception as e:
-             logger.error(f"Load error: {e}")
-             messagebox.showerror("Ошибка", f"Не удалось открыть БД:\n{e}")
-             self.quit()
+            logger.error(f"Load error: {e}")
+            messagebox.showerror("Ошибка", f"Не удалось открыть БД:\n{e}")
+            self.quit()
 
     def on_login_success(self):
         self.audit = AuditManager(self.db)
@@ -138,13 +118,10 @@ class MainWindow(tk.Tk):
         self.load_entries()
 
     def load_entries(self, search_query: str = ""):
-        """Загрузить и отобразить записи."""
         try:
             if search_query:
-                # Поиск (SEARCH-1, SEARCH-2)
                 data = self.entry_manager.search_entries(search_query)
             else:
-                # Все записи
                 data = self.entry_manager.get_all_entries(include_decrypted_password=True)
 
             self.table.load_data(data)
@@ -153,17 +130,13 @@ class MainWindow(tk.Tk):
             logger.error(f"Load entries error: {e}")
             messagebox.showerror("Ошибка", f"Не удалось загрузить записи:\n{e}")
 
-    # --- БЕЗОПАСНОСТЬ И БЛОКИРОВКА ---
-
     def on_minimize_event(self, event):
-        """CACHE-2: Обработчик сворачивания приложения."""
         if self.key_manager:
             self.key_manager.on_minimize()
 
     def check_inactivity(self):
-        """CACHE-2: Проверка простоя."""
         if self.key_manager and not state_manager.is_locked:
-            timeout = self.app_config.get("auto_lock_timeout", 60)  # минут
+            timeout = self.app_config.get("auto_lock_timeout", 60)
             if state_manager.check_inactivity(timeout):
                 self.lock_application()
             else:
@@ -172,7 +145,6 @@ class MainWindow(tk.Tk):
         self.after(self.auto_lock_check_interval, self.check_inactivity)
 
     def lock_application(self):
-        """Блокировка хранилища."""
         logger.info("Locking application...")
         self.key_manager.lock()
         state_manager.logout()
@@ -180,7 +152,6 @@ class MainWindow(tk.Tk):
         self.status_label.config(text="Статус: ЗАБЛОКИРОВАНО")
         self.table.load_data([])
 
-        # Запрос пароля для разблокировки
         login = LoginDialog(self, self.key_manager)
         if login.success:
             state_manager.login("default_user")
@@ -189,16 +160,12 @@ class MainWindow(tk.Tk):
             self.on_close()
 
     def on_close(self):
-        """CACHE-4: Завершение работы."""
         logger.info("Closing application...")
         if self.key_manager:
             self.key_manager.lock()
         self.destroy()
 
-    # --- ИНТЕРФЕЙС (UI) ---
-
     def create_toolbar(self):
-        """Панель инструментов."""
         toolbar = ttk.Frame(self)
         toolbar.pack(side=tk.TOP, fill=tk.X, padx=5, pady=5)
 
@@ -206,26 +173,29 @@ class MainWindow(tk.Tk):
         ttk.Button(toolbar, text="✏️ Редактировать", command=self.edit_selected).pack(side=tk.LEFT, padx=2)
         ttk.Button(toolbar, text="🗑 Удалить", command=self.delete_selected).pack(side=tk.LEFT, padx=2)
         ttk.Separator(toolbar, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=10)
+        self.password_toggle_btn = ttk.Button(
+            toolbar,
+            text="Показать/скрыть выбранные",
+            command=self.toggle_password_visibility,
+        )
+        self.password_toggle_btn.pack(side=tk.LEFT, padx=2)
         ttk.Button(toolbar, text="📋 Копировать пароль", command=self.copy_password).pack(side=tk.LEFT, padx=2)
 
     def create_search_area(self):
-        """SEARCH-1, SEARCH-2: Область поиска."""
         self.search_widget = SearchWidget(self, on_search=self.on_search)
         self.search_widget.pack(fill=tk.X, padx=10, pady=(0, 5))
 
     def on_search(self, query: str):
-        """Обработчик поиска."""
         self.load_entries(search_query=query)
 
     def create_main_area(self):
         self.table = SecureTable(self)
         self.table.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
 
-        # Привязка событий активности (AUTH-4)
         self.bind_all("<Button-1>", lambda e: state_manager.update_activity())
         self.bind_all("<Key>", lambda e: state_manager.update_activity())
+        self.bind_all("<Control-Shift-P>", lambda e: self.toggle_password_visibility())
 
-        # Контекстные действия из таблицы
         self.table.set_context_callback(self._on_table_action)
 
     def create_menu(self):
@@ -266,24 +236,19 @@ class MainWindow(tk.Tk):
         self.clipboard_label = ttk.Label(self.status_bar, text="Буфер: --", relief=tk.SUNKEN)
         self.clipboard_label.pack(side=tk.RIGHT, fill=tk.X)
 
-    # --- ОБРАБОТЧИКИ ДЕЙСТВИЙ ---
-
     def add_entry(self):
-        """Создать новую запись."""
         EntryDialog(self, on_save=self._on_entry_save)
 
     def edit_selected(self):
-        """Редактировать выбранную запись."""
         selected = self.table.get_selected_entries()
         if not selected:
             messagebox.showinfo("Информация", "Выберите запись для редактирования")
             return
 
         entry = selected[0]
-        EntryDialog(self, entry_data=entry, on_save=lambda data: self._on_entry_save(data, entry.get('id')))
+        EntryDialog(self, entry_data=entry, on_save=lambda data: self._on_entry_save(data, entry.get("id")))
 
     def delete_selected(self):
-        """Удалить выбранные записи (мягкое удаление)."""
         selected = self.table.get_selected_entries()
         if not selected:
             messagebox.showinfo("Информация", "Выберите записи для удаления")
@@ -293,7 +258,7 @@ class MainWindow(tk.Tk):
         if messagebox.askyesno("Подтверждение", f"Удалить {count} записей в корзину?"):
             for entry in selected:
                 try:
-                    self.entry_manager.delete_entry(entry['id'], soft_delete=True)
+                    self.entry_manager.delete_entry(entry["id"], soft_delete=True)
                 except Exception as e:
                     logger.error(f"Delete error for {entry.get('id')}: {e}")
 
@@ -301,13 +266,12 @@ class MainWindow(tk.Tk):
             messagebox.showinfo("Успех", f"Удалено {count} записей")
 
     def copy_password(self):
-        """Копировать пароль в буфер."""
         selected = self.table.get_selected_entries()
         if not selected:
             messagebox.showinfo("Информация", "Выберите запись")
             return
 
-        password = selected[0].get('password', '')
+        password = selected[0].get("password", "")
         if password:
             self.clipboard_clear()
             self.clipboard_append(password)
@@ -315,14 +279,11 @@ class MainWindow(tk.Tk):
             self.after(3000, lambda: self.clipboard_label.config(text="Буфер: --"))
 
     def _on_entry_save(self, data: dict, entry_id: str = None):
-        """Обработчик сохранения из EntryDialog."""
         try:
             if entry_id:
-                # Обновление
                 self.entry_manager.update_entry(entry_id, data)
                 messagebox.showinfo("Успех", "Запись обновлена")
             else:
-                # Создание
                 self.entry_manager.create_entry(data)
                 messagebox.showinfo("Успех", "Запись создана")
 
@@ -332,27 +293,23 @@ class MainWindow(tk.Tk):
             messagebox.showerror("Ошибка", f"Не удалось сохранить запись:\n{e}")
 
     def _on_table_action(self, action: str, entry: dict):
-        """Обработчик действий из контекстного меню таблицы."""
         if action == "open":
             messagebox.showinfo("Запись", f"Открыть: {entry.get('title', '')}")
         elif action == "edit":
-            EntryDialog(self, entry_data=entry,
-                        on_save=lambda data: self._on_entry_save(data, entry.get('id')))
+            EntryDialog(self, entry_data=entry, on_save=lambda data: self._on_entry_save(data, entry.get("id")))
         elif action == "copy_password":
-            password = entry.get('password', '')
+            password = entry.get("password", "")
             if password:
                 self.clipboard_clear()
                 self.clipboard_append(password)
         elif action == "delete":
             if messagebox.askyesno("Подтверждение", f"Удалить '{entry.get('title')}'?"):
-                self.entry_manager.delete_entry(entry['id'], soft_delete=True)
+                self.entry_manager.delete_entry(entry["id"], soft_delete=True)
                 self.load_entries()
         elif action == "permanent_delete":
             if messagebox.askyesno("Подтверждение", f"Удалить '{entry.get('title')}' НАВСЕГДА?"):
-                self.entry_manager.delete_entry(entry['id'], soft_delete=False)
+                self.entry_manager.delete_entry(entry["id"], soft_delete=False)
                 self.load_entries()
-
-    # --- ОБРАБОТЧИКИ МЕНЮ ---
 
     def show_change_password(self):
         ChangePasswordDialog(self, self.key_manager, self.entry_manager, self.encryption_service)
@@ -373,15 +330,20 @@ class MainWindow(tk.Tk):
                 viewer.log(f"{log[0]} - {log[1]}: {log[2]}")
 
     def show_about(self):
-        messagebox.showinfo("О программе",
-                            "CryptoSafe Manager v0.3\n"
-                            "Sprint 3: AES-256-GCM Encryption & Full CRUD\n\n"
-                            "• Per-entry AES-256-GCM шифрование\n"
-                            "• Полный CRUD с транзакциями\n"
-                            "• Безопасный генератор паролей\n"
-                            "• Поиск и фильтрация\n"
-                            "• Контекстное меню и маскирование")
+        messagebox.showinfo(
+            "О программе",
+            "CryptoSafe Manager v0.3\n"
+            "Sprint 3: AES-256-GCM Encryption & Full CRUD\n\n"
+            "• Per-entry AES-256-GCM шифрование\n"
+            "• Полный CRUD с транзакциями\n"
+            "• Безопасный генератор паролей\n"
+            "• Поиск и фильтрация\n"
+            "• Контекстное меню и маскирование",
+        )
+
+    def toggle_password_visibility(self):
+        """GUI-3: Переключить видимость у выбранных записей."""
+        self.table.toggle_password_visibility()
 
     def update_status(self, message: str):
-        """Обновить строку статуса."""
         self.status_label.config(text=message)

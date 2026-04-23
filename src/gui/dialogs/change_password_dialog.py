@@ -81,7 +81,12 @@ class ChangePasswordDialog(tk.Toplevel):
             self.config(cursor="watch")
             self.update()
 
-            self.key_manager.change_password(old_p, new_p, self.vault_manager, self.crypto_service)
+            self.key_manager.change_password(
+                old_p,
+                new_p,
+                self.entry_manager,
+                self.crypto_service,
+            )
             messagebox.showinfo("Успех", "Мастер-пароль успешно изменен.", parent=self)
             self.destroy()
 

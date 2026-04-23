@@ -18,6 +18,11 @@ class DatabaseHelper:
         if not hasattr(self._local, 'connection'):
             self._local.connection = sqlite3.connect(self.db_path, check_same_thread=False)
             self._local.connection.execute("PRAGMA foreign_keys = ON")
+            self._local.connection.execute("PRAGMA journal_mode = WAL")
+            self._local.connection.execute("PRAGMA synchronous = NORMAL")
+            self._local.connection.execute("PRAGMA temp_store = MEMORY")
+            self._local.connection.execute("PRAGMA cache_size = -20000")
+            self._local.explicit_transaction = False
         return self._local.connection
 
     def _initialize_db(self):
@@ -103,7 +108,8 @@ class DatabaseHelper:
         conn = self._get_connection()
         cursor = conn.cursor()
         cursor.execute(query, params)
-        conn.commit()
+        if not getattr(self._local, 'explicit_transaction', False):
+            conn.commit()
         return cursor.lastrowid
 
     def execute_many(self, queries: list):
@@ -126,17 +132,20 @@ class DatabaseHelper:
     def begin_transaction(self):
         """Начало транзакции."""
         conn = self._get_connection()
+        self._local.explicit_transaction = True
         conn.execute("BEGIN IMMEDIATE")
 
     def commit_transaction(self):
         """Фиксация транзакции."""
         conn = self._get_connection()
         conn.commit()
+        self._local.explicit_transaction = False
 
     def rollback_transaction(self):
         """Откат транзакции."""
         conn = self._get_connection()
         conn.rollback()
+        self._local.explicit_transaction = False
         logger.warning("Transaction rolled back")
 
     def fetchall(self, query: str, params: tuple = ()):

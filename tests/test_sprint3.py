@@ -604,7 +604,7 @@ class TestPerformance:
     """Тесты производительности (PERF-1 — PERF-3)."""
 
     def test_load_1000_entries(self, entry_manager):
-        """PERF-1: Загрузка 1000 записей < 60 секунд (включая шифрование)."""
+        """PERF-1: Загрузка 1000 записей < 2 секунд (включая шифрование)."""
         start = time.time()
 
         for i in range(1000):
@@ -625,7 +625,7 @@ class TestPerformance:
 
         assert len(entries) == 1000
         # AES-256-GCM + 1000 записей — даём запас
-        assert elapsed < 60, f"Loading took {elapsed:.2f}s (limit 60s for test)"
+        assert elapsed < 2, f"Loading took {elapsed:.2f}s (limit 2s for test)"
 
     def test_search_performance(self, entry_manager):
         """PERF-2: Поиск среди 1000 записей < 200ms."""
