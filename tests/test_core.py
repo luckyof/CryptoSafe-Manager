@@ -3,6 +3,7 @@ import os
 import sys
 import time
 import secrets
+import json
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'src')))
 
@@ -77,14 +78,25 @@ def test_db_initialization(temp_db):
 
 
 def test_db_insert_and_fetch(temp_db):
+    payload = {
+        "title": "Test Site",
+        "username": "user1",
+        "password": "secret",
+        "url": "",
+        "notes": "",
+        "category": "",
+        "tags": [],
+        "version": 1,
+    }
     temp_db.execute(
-        "INSERT INTO vault_entries (id, title, username) VALUES (?, ?, ?)",
-        ("test-id-1", "Test Site", "user1")
+        "INSERT INTO vault_entries (id, encrypted_data, created_at, updated_at, tags) VALUES (?, ?, ?, ?, ?)",
+        ("test-id-1", json.dumps(payload).encode("utf-8"), "2026-01-01T00:00:00+00:00", "2026-01-01T00:00:00+00:00", "[]")
     )
-    row = temp_db.fetchone("SELECT id, title, username FROM vault_entries WHERE title = ?", ("Test Site",))
+    row = temp_db.fetchone("SELECT id, encrypted_data FROM vault_entries WHERE id = ?", ("test-id-1",))
     assert row is not None
-    assert row[1] == "Test Site"  # title
-    assert row[2] == "user1"      # username
+    decoded = json.loads(row[1].decode("utf-8"))
+    assert decoded["title"] == "Test Site"
+    assert decoded["username"] == "user1"
 
 
 # TEST-3: Тесты событий

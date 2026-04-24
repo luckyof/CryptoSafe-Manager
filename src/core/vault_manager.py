@@ -1,45 +1,71 @@
-from typing import List, Dict
-from database.db import DatabaseHelper
+import json
+from datetime import datetime, timezone
+from typing import Dict, List
+
 from core.crypto.abstract import EncryptionService
+from database.db import DatabaseHelper
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
 
 class VaultManager:
+    """Legacy wrapper over the Sprint 3 encrypted_data storage model."""
+
     def __init__(self, db: DatabaseHelper, encryption_service: EncryptionService):
         self.db = db
         self.crypto = encryption_service
 
     def add_entry(self, title: str, username: str, password: str, url: str = "", notes: str = ""):
-        # ARC-2: Шифрование через сервис, ключ берется из KeyManager внутри
-        encrypted_pass = self.crypto.encrypt(password.encode())
-        
+        now = _now_iso()
+        payload = {
+            "title": title,
+            "username": username,
+            "password": password,
+            "url": url,
+            "notes": notes,
+            "category": "",
+            "tags": [],
+            "created_at": now,
+            "updated_at": now,
+            "version": 1,
+        }
+        encrypted_blob = self.crypto.encrypt(json.dumps(payload).encode("utf-8"))
+
         query = """
-            INSERT INTO vault_entries (title, username, encrypted_password, url, notes)
+            INSERT INTO vault_entries (id, encrypted_data, created_at, updated_at, tags)
             VALUES (?, ?, ?, ?, ?)
         """
-        self.db.execute(query, (title, username, encrypted_pass, url, notes))
+        entry_id = f"legacy-{int(datetime.now(timezone.utc).timestamp() * 1000000)}"
+        self.db.execute(query, (entry_id, encrypted_blob, now, now, "[]"))
 
     def get_all_entries(self) -> List[Dict]:
-        rows = self.db.fetchall("SELECT id, title, username, encrypted_password, url FROM vault_entries")
+        rows = self.db.fetchall("SELECT id, encrypted_data FROM vault_entries")
         result = []
         for row in rows:
             try:
-                decrypted_pass = self.crypto.decrypt(row[3]).decode()
+                data = json.loads(self.crypto.decrypt(row[1]).decode())
+                result.append({
+                    "id": row[0],
+                    "title": data.get("title", ""),
+                    "username": data.get("username", ""),
+                    "password": data.get("password", ""),
+                    "url": data.get("url", ""),
+                })
             except Exception:
-                decrypted_pass = "[DECRYPT_ERROR]"
-
-            result.append({
-                "id": row[0],
-                "title": row[1],
-                "username": row[2],
-                "password": decrypted_pass,
-                "url": row[4]
-            })
+                result.append({
+                    "id": row[0],
+                    "title": "[DECRYPT_ERROR]",
+                    "username": "",
+                    "password": "[DECRYPT_ERROR]",
+                    "url": "",
+                })
         return result
-    
+
     def get_all_entries_raw(self) -> List[Dict]:
-        """Получение записей без расшифровки (для смены пароля)."""
-        rows = self.db.fetchall("SELECT id, encrypted_password FROM vault_entries")
+        rows = self.db.fetchall("SELECT id, encrypted_data FROM vault_entries")
         return [{"id": r[0], "enc_data": r[1]} for r in rows]
-    
+
     def update_entry_password(self, entry_id: int, new_encrypted_data: bytes):
-        self.db.execute("UPDATE vault_entries SET encrypted_password = ? WHERE id = ?", 
-                        (new_encrypted_data, entry_id))
+        self.db.execute("UPDATE vault_entries SET encrypted_data = ? WHERE id = ?", (new_encrypted_data, entry_id))

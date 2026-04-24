@@ -2,6 +2,7 @@ import pytest
 import os
 import sys
 import shutil
+import json
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'src')))
 
 from core.config import ConfigManager
@@ -69,7 +70,7 @@ def test_full_setup_and_encryption_flow(clean_env):
 
     # 5. ПРОВЕРКА DB-2: Данные в БД должны быть зашифрованы
     # Делаем прямой запрос в БД, минуя VaultManager
-    row = db.fetchone("SELECT encrypted_password FROM vault_entries WHERE title = 'Google'")
+    row = db.fetchone("SELECT encrypted_data FROM vault_entries LIMIT 1")
 
     assert row is not None, "Запись не найдена"
     stored_blob = row[0]
@@ -82,8 +83,8 @@ def test_full_setup_and_encryption_flow(clean_env):
 
     # Проверка 3: Расшифровка работает корректно
     # Ключ уже установлен в storage, просто расшифровываем
-    decrypted = crypto.decrypt(stored_blob).decode()
-    assert decrypted == plain_password, "Ошибка расшифровки"
+    decrypted = json.loads(crypto.decrypt(stored_blob).decode())
+    assert decrypted["password"] == plain_password, "Ошибка расшифровки"
 
     db.close()
 
