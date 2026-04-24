@@ -141,7 +141,7 @@ class PasswordGenerator:
 
         # GEN-5: Проверка на дубликаты в истории
         if password in self._history:
-            # Рекурсивно генерируем новый (маловероятно при большой энтропии)
+            # Рекурсивно генерируем новый 
             return self.generate(length, use_uppercase, use_lowercase,
                                  use_digits, use_symbols, exclude_ambiguous)
 

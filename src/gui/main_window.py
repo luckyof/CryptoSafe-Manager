@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import os
 import logging
+from datetime import datetime, timezone
 
 from .widgets.secure_table import SecureTable
 from .widgets.audit_log_viewer import AuditLogViewer
@@ -20,6 +21,7 @@ from database.db import DatabaseHelper
 from core.key_manager import KeyManager
 from core.vault.entry_manager import EntryManager
 from core.vault.encryption_service import AES256GCMService
+from core.vault.password_generator import PasswordStrength
 
 logger = logging.getLogger("MainWindow")
 
@@ -117,14 +119,18 @@ class MainWindow(tk.Tk):
         event_bus.publish("UserLoggedIn", data={"user": "default_user"})
         self.load_entries()
 
-    def load_entries(self, search_query: str = ""):
+    def load_entries(self, search_query: str = "", filters=None):
         try:
             if search_query:
                 data = self.entry_manager.search_entries(search_query)
             else:
                 data = self.entry_manager.get_all_entries(include_decrypted_password=True)
 
+            if filters:
+                data = self._apply_demo_filters(data, filters)
+
             self.table.load_data(data)
+            self._update_search_categories(data)
             self.update_status(f"Записей: {len(data)}")
         except Exception as e:
             logger.error(f"Load entries error: {e}")
@@ -185,8 +191,11 @@ class MainWindow(tk.Tk):
         self.search_widget = SearchWidget(self, on_search=self.on_search)
         self.search_widget.pack(fill=tk.X, padx=10, pady=(0, 5))
 
-    def on_search(self, query: str):
-        self.load_entries(search_query=query)
+    def on_search(self, query):
+        if isinstance(query, dict):
+            self.load_entries(search_query=query.get("query", ""), filters=query)
+        else:
+            self.load_entries(search_query=query)
 
     def create_main_area(self):
         self.table = SecureTable(self)
@@ -197,6 +206,73 @@ class MainWindow(tk.Tk):
         self.bind_all("<Control-Shift-P>", lambda e: self.toggle_password_visibility())
 
         self.table.set_context_callback(self._on_table_action)
+
+    def _apply_demo_filters(self, entries, filters):
+        """Применить дополнительные GUI-фильтры к уже найденным записям."""
+        category = (filters.get("category") or "").strip()
+        tag = (filters.get("tag") or "").strip().lower()
+        start_date = self._parse_iso_datetime(filters.get("start_date"))
+        end_date = self._parse_iso_datetime(filters.get("end_date"))
+        min_strength = filters.get("min_strength")
+
+        results = []
+        for entry in entries:
+            if category and entry.get("category", "") != category:
+                continue
+
+            if tag:
+                entry_tags = [str(item).lower() for item in entry.get("tags", [])]
+                if tag not in entry_tags:
+                    continue
+
+            if start_date or end_date:
+                entry_dt = self._parse_iso_datetime(entry.get("updated_at"))
+                if entry_dt is None:
+                    continue
+                if start_date and entry_dt < start_date:
+                    continue
+                if end_date and entry_dt > end_date:
+                    continue
+
+            if min_strength is not None:
+                score = PasswordStrength.calculate(entry.get("password", ""))
+                if score < min_strength:
+                    continue
+
+            results.append(entry)
+
+        return results
+
+    def _update_search_categories(self, entries):
+        categories = sorted({
+            entry.get("category", "").strip()
+            for entry in entries
+            if entry.get("category", "").strip()
+        })
+        self.search_widget.set_categories(categories)
+
+    @staticmethod
+    def _parse_iso_datetime(value):
+        """Парсинг даты для демо-фильтрации."""
+        if not value:
+            return None
+
+        text = str(value).strip()
+        if not text:
+            return None
+
+        if len(text) == 10:
+            text = f"{text}T00:00:00+00:00"
+        elif len(text) == 16 and "T" in text:
+            text = f"{text}:00+00:00"
+        elif len(text) == 19 and "T" in text:
+            text = f"{text}+00:00"
+
+        normalized = text.replace("Z", "+00:00")
+        parsed = datetime.fromisoformat(normalized)
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
 
     def create_menu(self):
         menubar = tk.Menu(self)

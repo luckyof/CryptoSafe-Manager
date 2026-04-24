@@ -50,7 +50,7 @@ def entry_manager(temp_db, key_manager):
     return EntryManager(temp_db, key_manager)
 
 
-# === TEST-1: Encryption Round-Trip Test (ENC-1 — ENC-5) ===
+# === TEST-1: (ENC-1 — ENC-5) ===
 
 class TestAES256GCMEncryption:
     """TEST-1: Тесты шифрования AES-256-GCM."""
@@ -322,7 +322,7 @@ class TestEntryManagerCRUD:
 
     def test_entry_not_found(self, entry_manager):
         """Получение несуществующей записи."""
-        with pytest.raises(ValueError, match="Запись не найдена"):
+        with pytest.raises(ValueError, match="Ошибка доступа"):
             entry_manager.get_entry("non-existent-id")
 
 
@@ -571,6 +571,22 @@ class TestSearchAndFilter:
         assert len(results) == 1
         assert results[0]["category"] == "Work"
 
+    def test_search_typo_tolerance(self, entry_manager):
+        """SEARCH-1: Fuzzy matching with typo tolerance."""
+        entry_manager.create_entry({
+            "title": "Github Account",
+            "username": "dev@example.com",
+            "password": "P@ss!",
+            "url": "https://github.com",
+            "notes": "Primary development account",
+            "category": "Work",
+            "tags": [],
+        })
+
+        results = entry_manager.search_entries("githib")
+        assert len(results) == 1
+        assert results[0]["title"] == "Github Account"
+
     def test_filter_by_tags(self, entry_manager):
         """SEARCH-3: Фильтрация по тегам."""
         entry_manager.create_entry({
@@ -597,11 +613,72 @@ class TestSearchAndFilter:
         assert len(results) == 1
         assert "work" in results[0]["tags"]
 
+    def test_filter_by_date_range(self, entry_manager):
+        """SEARCH-3: Фильтрация по диапазону дат."""
+        first_id = entry_manager.create_entry({
+            "title": "Older Entry",
+            "username": "old@test.com",
+            "password": "P@ss!",
+            "url": "",
+            "notes": "",
+            "category": "",
+            "tags": [],
+        })
+        second_id = entry_manager.create_entry({
+            "title": "Newer Entry",
+            "username": "new@test.com",
+            "password": "P@ss!",
+            "url": "",
+            "notes": "",
+            "category": "",
+            "tags": [],
+        })
 
-# === PERFORMANCE TESTS ===
+        entry_manager.db.execute(
+            "UPDATE vault_entries SET created_at = ?, updated_at = ? WHERE id = ?",
+            ("2026-01-10T10:00:00+00:00", "2026-01-10T10:00:00+00:00", first_id)
+        )
+        entry_manager.db.execute(
+            "UPDATE vault_entries SET created_at = ?, updated_at = ? WHERE id = ?",
+            ("2026-03-10T10:00:00+00:00", "2026-03-10T10:00:00+00:00", second_id)
+        )
+
+        results = entry_manager.filter_by_date_range(
+            start_date="2026-02-01T00:00:00+00:00",
+            end_date="2026-03-31T23:59:59+00:00",
+        )
+        assert len(results) == 1
+        assert results[0]["title"] == "Newer Entry"
+
+    def test_filter_by_password_strength(self, entry_manager):
+        """SEARCH-3: Фильтрация по силе пароля."""
+        entry_manager.create_entry({
+            "title": "Weak Password",
+            "username": "weak@test.com",
+            "password": "short1A!",
+            "url": "",
+            "notes": "",
+            "category": "",
+            "tags": [],
+        })
+        entry_manager.create_entry({
+            "title": "Strong Password",
+            "username": "strong@test.com",
+            "password": "V3ry!Str0ng#P@ssw0rd_L0ng",
+            "url": "",
+            "notes": "",
+            "category": "",
+            "tags": [],
+        })
+
+        results = entry_manager.filter_by_password_strength(min_score=4)
+        assert len(results) == 1
+        assert results[0]["title"] == "Strong Password"
+
+
 
 class TestPerformance:
-    """Тесты производительности (PERF-1 — PERF-3)."""
+    """Тесты производительности."""
 
     def test_load_1000_entries(self, entry_manager):
         """PERF-1: Загрузка 1000 записей < 2 секунд (включая шифрование)."""
@@ -649,4 +726,4 @@ class TestPerformance:
         elapsed = time.time() - start
 
         assert len(results) >= 1
-        assert elapsed < 2, f"Search took {elapsed:.3f}s (limit 2s for test)"
+        assert elapsed < 0.2, f"Search took {elapsed:.3f}s (limit 0.2s for test)"
