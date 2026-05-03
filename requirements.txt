@@ -1,6 +1,9 @@
 # Core dependencies
 argon2-cffi>=21.3.0
 cryptography>=38.0.0
+pyperclip>=1.8.2
+pywin32>=306; sys_platform == "win32"
+pyobjc-framework-Cocoa>=9.0; sys_platform == "darwin"
 
 # Testing
 pytest>=7.0.0

@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, simpledialog
 import os
 import logging
 from datetime import datetime, timezone
@@ -22,6 +22,7 @@ from core.key_manager import KeyManager
 from core.vault.entry_manager import EntryManager
 from core.vault.encryption_service import AES256GCMService
 from core.vault.password_generator import PasswordStrength
+from core.clipboard import ClipboardMonitor, ClipboardService
 
 logger = logging.getLogger("MainWindow")
 
@@ -38,12 +39,16 @@ class MainWindow(tk.Tk):
         self.key_manager = None
         self.encryption_service = None
         self.entry_manager = None
+        self.clipboard_service = ClipboardService(config=self.app_config, state=state_manager)
+        self.clipboard_monitor = None
+        self._clipboard_warning_shown = False
 
         self.create_toolbar()
         self.create_search_area()
         self.create_main_area()
         self.create_menu()
         self.create_status_bar()
+        self.setup_clipboard_ui()
 
         self.after(100, self.startup_sequence)
 
@@ -84,6 +89,7 @@ class MainWindow(tk.Tk):
             self.key_manager = KeyManager(self.db)
             if not self.key_manager.setup_new_vault(password):
                 return False
+            self.app_config.attach_key_manager(self.key_manager)
 
             self.encryption_service = AES256GCMService()
             self.encryption_service.set_key_manager(self.key_manager)
@@ -101,6 +107,7 @@ class MainWindow(tk.Tk):
 
             login = LoginDialog(self, self.key_manager)
             if login.success:
+                self.app_config.attach_key_manager(self.key_manager)
                 self.encryption_service = AES256GCMService()
                 self.encryption_service.set_key_manager(self.key_manager)
                 self.entry_manager = EntryManager(self.db, self.key_manager)
@@ -117,6 +124,7 @@ class MainWindow(tk.Tk):
         self.audit = AuditManager(self.db)
         self.status_label.config(text="Статус: Разблокировано")
         event_bus.publish("UserLoggedIn", data={"user": "default_user"})
+        self.start_clipboard_monitor()
         self.load_entries()
 
     def load_entries(self, search_query: str = "", filters=None):
@@ -152,6 +160,7 @@ class MainWindow(tk.Tk):
 
     def lock_application(self):
         logger.info("Locking application...")
+        self.clipboard_service.clear_clipboard("lock")
         self.key_manager.lock()
         state_manager.logout()
 
@@ -167,6 +176,9 @@ class MainWindow(tk.Tk):
 
     def on_close(self):
         logger.info("Closing application...")
+        if self.clipboard_monitor:
+            self.clipboard_monitor.stop()
+        self.clipboard_service.shutdown()
         if self.key_manager:
             self.key_manager.lock()
         self.destroy()
@@ -185,6 +197,7 @@ class MainWindow(tk.Tk):
             command=self.toggle_password_visibility,
         )
         self.password_toggle_btn.pack(side=tk.LEFT, padx=2)
+        ttk.Button(toolbar, text="Копировать логин", command=self.copy_username).pack(side=tk.LEFT, padx=2)
         ttk.Button(toolbar, text="📋 Копировать пароль", command=self.copy_password).pack(side=tk.LEFT, padx=2)
 
     def create_search_area(self):
@@ -206,6 +219,29 @@ class MainWindow(tk.Tk):
         self.bind_all("<Control-Shift-P>", lambda e: self.toggle_password_visibility())
 
         self.table.set_context_callback(self._on_table_action)
+
+    def setup_clipboard_ui(self):
+        self.clipboard_service.add_observer(lambda status: self.after(0, self._on_clipboard_status, status))
+        event_bus.subscribe("ClipboardCopied", lambda event: self.after(0, self._on_clipboard_copied, event.data))
+        event_bus.subscribe("ClipboardCleared", lambda event: self.after(0, self._on_clipboard_cleared, event.data))
+        event_bus.subscribe("ClipboardWarning", lambda event: self.after(0, self._on_clipboard_warning, event.data))
+        event_bus.subscribe("ClipboardCopyBlockChanged", lambda event: self.after(0, self._on_clipboard_block_changed, event.data))
+        event_bus.subscribe("ClipboardError", lambda event: self.after(0, self._on_clipboard_error, event.data))
+        self.after(1000, self.refresh_clipboard_status)
+
+    def start_clipboard_monitor(self):
+        if self.clipboard_monitor or not self.app_config.get("clipboard_monitor_enabled", True):
+            return
+        self.clipboard_monitor = ClipboardMonitor(self.clipboard_service)
+        self.clipboard_monitor.start()
+
+    def apply_clipboard_monitor_setting(self):
+        enabled = self.app_config.get_bool("clipboard_monitor_enabled", True)
+        if enabled:
+            self.start_clipboard_monitor()
+        elif self.clipboard_monitor:
+            self.clipboard_monitor.stop()
+            self.clipboard_monitor = None
 
     def _apply_demo_filters(self, entries, filters):
         """Применить дополнительные GUI-фильтры к уже найденным записям."""
@@ -311,6 +347,7 @@ class MainWindow(tk.Tk):
 
         self.clipboard_label = ttk.Label(self.status_bar, text="Буфер: --", relief=tk.SUNKEN)
         self.clipboard_label.pack(side=tk.RIGHT, fill=tk.X)
+        self.clipboard_label.bind("<Button-1>", lambda event: self.show_clipboard_preview())
 
     def add_entry(self):
         EntryDialog(self, on_save=self._on_entry_save)
@@ -347,12 +384,39 @@ class MainWindow(tk.Tk):
             messagebox.showinfo("Информация", "Выберите запись")
             return
 
-        password = selected[0].get("password", "")
-        if password:
-            self.clipboard_clear()
-            self.clipboard_append(password)
-            self.clipboard_label.config(text="Буфер: скопировано!")
-            self.after(3000, lambda: self.clipboard_label.config(text="Буфер: --"))
+        self.copy_entry_field(selected[0], "password")
+
+    def copy_username(self):
+        selected = self.table.get_selected_entries()
+        if not selected:
+            messagebox.showinfo("Информация", "Выберите запись")
+            return
+
+        self.copy_entry_field(selected[0], "username")
+
+    def copy_entry_field(self, entry: dict, field_name: str):
+        entry_id = entry.get("id")
+        if not entry_id:
+            self.show_clipboard_toast(f"Нет данных для копирования: {field_name}", warning=True)
+            return
+
+        try:
+            self.clipboard_service.copy_entry_field(self.entry_manager, entry_id, field_name)
+        except Exception as e:
+            logger.error(f"Clipboard copy error: {e}")
+            messagebox.showerror("Буфер обмена", f"Не удалось скопировать данные:\n{e}", parent=self)
+
+    def copy_entry_all(self, entry: dict):
+        entry_id = entry.get("id")
+        if not entry_id:
+            self.show_clipboard_toast("РќРµС‚ РґР°РЅРЅС‹С… РґР»СЏ РєРѕРїРёСЂРѕРІР°РЅРёСЏ", warning=True)
+            return
+
+        try:
+            self.clipboard_service.copy_entry_summary(self.entry_manager, entry_id)
+        except Exception as e:
+            logger.error(f"Clipboard copy all error: {e}")
+            messagebox.showerror("Р‘СѓС„РµСЂ РѕР±РјРµРЅР°", f"РќРµ СѓРґР°Р»РѕСЃСЊ СЃРєРѕРїРёСЂРѕРІР°С‚СЊ Р·Р°РїРёСЃСЊ:\n{e}", parent=self)
 
     def _on_entry_save(self, data: dict, entry_id: str = None):
         try:
@@ -374,10 +438,11 @@ class MainWindow(tk.Tk):
         elif action == "edit":
             EntryDialog(self, entry_data=entry, on_save=lambda data: self._on_entry_save(data, entry.get("id")))
         elif action == "copy_password":
-            password = entry.get("password", "")
-            if password:
-                self.clipboard_clear()
-                self.clipboard_append(password)
+            self.copy_entry_field(entry, "password")
+        elif action == "copy_username":
+            self.copy_entry_field(entry, "username")
+        elif action == "copy_all":
+            self.copy_entry_all(entry)
         elif action == "delete":
             if messagebox.askyesno("Подтверждение", f"Удалить '{entry.get('title')}'?"):
                 self.entry_manager.delete_entry(entry["id"], soft_delete=True)
@@ -423,3 +488,110 @@ class MainWindow(tk.Tk):
 
     def update_status(self, message: str):
         self.status_label.config(text=message)
+
+    def refresh_clipboard_status(self):
+        self._on_clipboard_status(self.clipboard_service.get_clipboard_status())
+        self.after(1000, self.refresh_clipboard_status)
+
+    def _on_clipboard_status(self, status):
+        if status.active:
+            remaining = "never" if status.remaining_seconds <= 0 else f"{int(status.remaining_seconds)}s"
+            self.clipboard_label.config(
+                text=f"Буфер: {status.data_type} {status.preview} ({remaining})"
+            )
+            self.table.set_clipboard_entry(status.source_entry_id)
+            if 0 < status.remaining_seconds <= 5 and not self._clipboard_warning_shown:
+                self._clipboard_warning_shown = True
+                self.show_clipboard_toast("Буфер обмена скоро будет очищен", warning=True)
+        else:
+            self._clipboard_warning_shown = False
+            self.clipboard_label.config(text="Буфер: --")
+            self.table.set_clipboard_entry(None)
+
+    def _on_clipboard_copied(self, data):
+        if not self.app_config.get_bool("clipboard_notify_on_copy", True):
+            return
+        self.show_clipboard_toast(f"Скопировано: {data.get('data_type', 'text')}")
+
+    def _on_clipboard_cleared(self, data):
+        if not self.app_config.get_bool("clipboard_notify_on_clear", True):
+            return
+        reason = data.get("reason", "unknown") if data else "unknown"
+        self.show_clipboard_toast(f"Буфер очищен ({reason})")
+
+    def _on_clipboard_warning(self, data):
+        if not self.app_config.get_bool("clipboard_notify_on_warning", True):
+            return
+        message = data.get("message", "Подозрительная активность буфера обмена") if data else "Подозрительная активность буфера обмена"
+        self.show_clipboard_toast(message, warning=True)
+
+    def _on_clipboard_block_changed(self, data):
+        if data and data.get("blocked"):
+            self.show_clipboard_toast("Копирование заблокировано из-за подозрительной активности", warning=True)
+        else:
+            self.show_clipboard_toast("Копирование снова разрешено")
+
+    def _on_clipboard_error(self, data):
+        reason = data.get("reason", "unknown") if data else "unknown"
+        message = data.get("message") if data else ""
+        if data and data.get("manual_clear_required"):
+            message = message or "Clipboard could not be cleared automatically. Clear it manually."
+        self.show_clipboard_toast(message or f"Clipboard error: {reason}", warning=True)
+
+    def show_clipboard_toast(self, message: str, warning: bool = False):
+        self.clipboard_label.config(text=message)
+        toast = tk.Toplevel(self)
+        toast.title("Буфер обмена")
+        toast.transient(self)
+        toast.resizable(False, False)
+        frame = ttk.Frame(toast, padding=10)
+        frame.pack(fill=tk.BOTH, expand=True)
+        ttk.Label(frame, text=message, foreground="#8a5a00" if warning else "#1f6f43").pack()
+        toast.update_idletasks()
+        x = self.winfo_rootx() + max(0, self.winfo_width() - toast.winfo_width() - 24)
+        y = self.winfo_rooty() + max(0, self.winfo_height() - toast.winfo_height() - 64)
+        toast.geometry(f"+{x}+{y}")
+        toast.after(2500, toast.destroy)
+
+    def show_clipboard_preview(self):
+        status = self.clipboard_service.get_clipboard_status()
+        if not status.active:
+            messagebox.showinfo("Буфер обмена", "Буфер обмена пуст.", parent=self)
+            return
+
+        win = tk.Toplevel(self)
+        win.title("Буфер обмена")
+        win.transient(self)
+        win.resizable(False, False)
+        frame = ttk.Frame(win, padding=12)
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(frame, text=f"Тип: {status.data_type}").pack(anchor=tk.W)
+        ttk.Label(frame, text=f"Источник: {status.source_entry_id or '--'}").pack(anchor=tk.W, pady=(4, 0))
+        preview_var = tk.StringVar(value=f"Предпросмотр: {status.preview}")
+        ttk.Label(frame, textvariable=preview_var).pack(anchor=tk.W, pady=(4, 10))
+
+        def reveal():
+            try:
+                value = self.clipboard_service.reveal_current_content(self._authenticate_for_clipboard_reveal)
+                if value is not None:
+                    preview_var.set(f"Полное значение: {value}")
+            except Exception as e:
+                messagebox.showerror("Буфер обмена", str(e), parent=win)
+
+        buttons = ttk.Frame(frame)
+        buttons.pack(fill=tk.X)
+        ttk.Button(buttons, text="Показать", command=reveal).pack(side=tk.LEFT)
+        ttk.Button(buttons, text="Закрыть", command=win.destroy).pack(side=tk.RIGHT)
+
+    def _authenticate_for_clipboard_reveal(self) -> bool:
+        if not self.key_manager:
+            return False
+        password = simpledialog.askstring("Аутентификация", "Введите мастер-пароль:", show="*", parent=self)
+        if not password:
+            return False
+        try:
+            return self.key_manager.unlock(password)
+        except Exception as e:
+            logger.warning(f"Clipboard reveal authentication failed: {e}")
+            return False

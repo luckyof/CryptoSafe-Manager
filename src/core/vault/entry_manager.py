@@ -91,6 +91,8 @@ class EntryManager:
             "notes": data.get("notes", ""),
             "category": data.get("category", ""),
             "tags": data.get("tags", []),
+            "never_copy_to_clipboard": bool(data.get("never_copy_to_clipboard", False)),
+            "clipboard_policy": data.get("clipboard_policy", {}),
             "totp_secret": data.get("totp_secret", ""),  # FUTURE-1
             "sharing_metadata": data.get("sharing_metadata", {}),  # FUTURE-1
             "version": ENTRY_VERSION,
@@ -198,6 +200,8 @@ class EntryManager:
                         "url": data.get("url", ""),
                         "notes": data.get("notes", ""),
                         "category": data.get("category", ""),
+                        "never_copy_to_clipboard": data.get("never_copy_to_clipboard", False),
+                        "clipboard_policy": data.get("clipboard_policy", {}),
                     })
                 except Exception as e:
                     logger.error(f"Failed to decrypt entry {entry_id}: {e}")
@@ -245,7 +249,7 @@ class EntryManager:
 
         # Обновляем поля
         for key in ["title", "username", "password", "url", "notes", "category", "tags",
-                     "totp_secret", "sharing_metadata"]:
+                     "never_copy_to_clipboard", "clipboard_policy", "totp_secret", "sharing_metadata"]:
             if key in data:
                 current[key] = data[key]
 

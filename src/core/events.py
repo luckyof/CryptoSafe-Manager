@@ -1,6 +1,7 @@
 from typing import Callable, Dict, List, Any
 from dataclasses import dataclass
 import asyncio
+import inspect
 import logging
 
 #определение типов событий (EVT-1)
@@ -27,7 +28,7 @@ class EventBus:
         if event_name in self._subscribers:
             for callback in self._subscribers[event_name]:
                 try:
-                    if asyncio.iscoroutinefunction(callback):
+                    if inspect.iscoroutinefunction(callback):
                         try:
                             loop = asyncio.get_event_loop()
                             loop.create_task(callback(event))

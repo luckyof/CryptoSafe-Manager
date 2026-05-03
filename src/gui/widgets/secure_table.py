@@ -42,7 +42,9 @@ class SecureTable(ttk.Treeview):
         self.context_menu = tk.Menu(self, tearoff=0)
         self.context_menu.add_command(label="Открыть", command=self._on_open)
         self.context_menu.add_command(label="Редактировать", command=self._on_edit)
+        self.context_menu.add_command(label="Копировать логин", command=self._on_copy_username)
         self.context_menu.add_command(label="Копировать пароль", command=self._on_copy_password)
+        self.context_menu.add_command(label="Копировать всё", command=self._on_copy_all)
         self.context_menu.add_separator()
         self.context_menu.add_command(label="Удалить", command=self._on_delete)
         self.context_menu.add_command(label="Удалить навсегда", command=self._on_permanent_delete)
@@ -50,6 +52,7 @@ class SecureTable(ttk.Treeview):
         self.bind("<Button-1>", self._on_left_click, add="+")
         self.bind("<Button-3>", self._show_context_menu)
         self.bind("<Double-1>", self._on_double_click)
+        self.tag_configure("clipboard_active", background="#fff3cd")
 
     def load_data(self, data: List[Dict[str, Any]]):
         """Load entry data into the table."""
@@ -83,6 +86,11 @@ class SecureTable(ttk.Treeview):
                     item.get("category", ""),
                 ),
             )
+
+    def set_clipboard_entry(self, entry_id: str = None):
+        """Highlight the row whose content is currently in the clipboard."""
+        for item_id in self.get_children():
+            self.item(item_id, tags=("clipboard_active",) if entry_id and item_id == entry_id else ())
 
     def get_selected_entries(self) -> List[Dict[str, Any]]:
         """Return selected entry payloads."""
@@ -217,11 +225,18 @@ class SecureTable(ttk.Treeview):
 
     def _on_copy_password(self):
         selected = self.get_selected_entries()
-        if selected:
-            password = selected[0].get("password", "")
-            if password:
-                self.clipboard_clear()
-                self.clipboard_append(password)
+        if selected and self._on_context_action_callback:
+            self._on_context_action_callback("copy_password", selected[0])
+
+    def _on_copy_username(self):
+        selected = self.get_selected_entries()
+        if selected and self._on_context_action_callback:
+            self._on_context_action_callback("copy_username", selected[0])
+
+    def _on_copy_all(self):
+        selected = self.get_selected_entries()
+        if selected and self._on_context_action_callback:
+            self._on_context_action_callback("copy_all", selected[0])
 
     def _on_delete(self):
         selected = self.get_selected_entries()
