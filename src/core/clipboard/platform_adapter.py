@@ -22,7 +22,7 @@ class ClipboardAccessInfo:
 
 
 class ClipboardAdapter(ABC):
-    """Platform boundary for system clipboard access."""
+
 
     backend_name = "abstract"
 
@@ -54,7 +54,7 @@ class ClipboardAdapter(ABC):
 
 
 class WindowsClipboardAdapter(ClipboardAdapter):
-    """Windows implementation using pywin32 when available."""
+
 
     backend_name = "windows-win32clipboard"
 
@@ -147,7 +147,7 @@ class WindowsClipboardAdapter(ClipboardAdapter):
 
 
 class MacOSClipboardAdapter(ClipboardAdapter):
-    """macOS implementation using NSPasteboard through pyobjc."""
+
 
     backend_name = "macos-nspasteboard"
 
@@ -184,7 +184,6 @@ class MacOSClipboardAdapter(ClipboardAdapter):
 
 
 class LinuxClipboardAdapter(ClipboardAdapter):
-    """Linux implementation using common clipboard command-line tools."""
 
     backend_name = "linux-command"
 
@@ -280,7 +279,6 @@ class LinuxClipboardAdapter(ClipboardAdapter):
 
 
 class PyperclipClipboardAdapter(ClipboardAdapter):
-    """Cross-platform fallback using pyperclip."""
 
     backend_name = "pyperclip"
 
@@ -309,7 +307,6 @@ class PyperclipClipboardAdapter(ClipboardAdapter):
 
 
 class InMemoryClipboardAdapter(ClipboardAdapter):
-    """Last-resort adapter for tests and restricted environments."""
 
     backend_name = "in-memory"
 
@@ -329,7 +326,6 @@ class InMemoryClipboardAdapter(ClipboardAdapter):
 
 
 def get_default_clipboard_adapter() -> ClipboardAdapter:
-    """Return the best available adapter for this platform."""
     system = platform.system()
     adapter_classes = []
 
