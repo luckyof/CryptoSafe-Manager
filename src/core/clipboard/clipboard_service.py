@@ -141,7 +141,6 @@ class SecureClipboardItem:
 
 
 class ClipboardService:
-    """Main Sprint 4 clipboard facade with events and Observer notifications."""
 
     def __init__(
         self,
@@ -322,7 +321,6 @@ class ClipboardService:
             self._notify_observers_locked()
 
     def set_auto_clear_timeout(self, timeout_seconds: Optional[int]) -> Optional[int]:
-        """Persist auto-clear timeout. None disables auto-clear for the session profile."""
         normalized = self._normalize_timeout(timeout_seconds)
         stored_value = NEVER_AUTO_CLEAR if normalized is None else normalized
         if hasattr(self.config, "set"):
@@ -332,7 +330,6 @@ class ClipboardService:
         return normalized
 
     def handle_external_change(self, observed_content: Optional[str]):
-        """Called by ClipboardMonitor when system clipboard changed unexpectedly."""
         with self._lock:
             if not self.current_content:
                 return
@@ -344,7 +341,6 @@ class ClipboardService:
             self._clear_clipboard_locked("external_change", publish_event=True)
 
     def handle_suspicious_access(self, reason: str = "possible_clipboard_snooping"):
-        """Defensive hook for monitors that can only infer clipboard access."""
         with self._lock:
             if not self.current_content:
                 return

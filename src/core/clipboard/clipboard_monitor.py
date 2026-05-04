@@ -9,7 +9,7 @@ logger = logging.getLogger("ClipboardMonitor")
 
 
 class ClipboardMonitor:
-    """Polling monitor for external clipboard changes."""
+
 
     def __init__(self, clipboard_service: ClipboardService, interval_seconds: float = 1.0):
         self.clipboard_service = clipboard_service
@@ -41,7 +41,6 @@ class ClipboardMonitor:
         self.clipboard_service._publish("ClipboardMonitorStopped", {})
 
     def poll_once(self):
-        """Single poll hook used by tests and by the timer loop."""
         current = self._read_access_info()
         if current is _READ_FAILED:
             return
