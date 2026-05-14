@@ -44,7 +44,11 @@ class SecureClipboardItem:
         self.source_entry_id = source_entry_id
         self.created_at = time.monotonic()
         self._mask = bytearray(secrets.token_bytes(32))
-        self._data = self._xor(data.encode("utf-8"))
+        encoded = bytearray(data, "utf-8")
+        try:
+            self._data = self._xor(encoded)
+        finally:
+            self._zero_bytes(encoded)
         self._locked_buffers = []
         self._memory_lock_attempted = False
         self._lock_memory()
