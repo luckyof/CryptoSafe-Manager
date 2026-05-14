@@ -2,6 +2,8 @@ import logging
 import threading
 import time
 from typing import TYPE_CHECKING, Optional, Callable
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from .crypto.key_derivation import KeyDerivationService
 from .crypto.key_storage import SecureMemoryCache
 from .crypto.authentication import AuthenticationService, DEFAULT_AUTO_LOCK_TIMEOUT
@@ -12,6 +14,8 @@ if TYPE_CHECKING:
     from src.core.vault_manager import VaultManager
 
 logger = logging.getLogger("KeyManager")
+
+AUDIT_SIGNING_PURPOSE = "audit-signing"
 
 
 class KeyManager:
@@ -139,6 +143,25 @@ class KeyManager:
     def touch(self):
         """Обновление активности пользователя (CACHE-2)."""
         self._check_and_lock_if_needed()
+
+    def derive_key(self, purpose: str, length: int = 32) -> bytes:
+        base_key = self.storage.get_key()
+        if base_key is None:
+            raise RuntimeError("Vault key is not available. Unlock the vault first.")
+        if not purpose:
+            raise ValueError("Key derivation purpose is required.")
+
+        hkdf = HKDF(
+            algorithm=hashes.SHA256(),
+            length=length,
+            salt=b"cryptosafe-manager:v1",
+            info=purpose.encode("utf-8"),
+        )
+        return hkdf.derive(base_key)
+
+    def derive_audit_signing_key(self, length: int = 32) -> bytes:
+        """Derive the Sprint 5 audit signing key with key separation."""
+        return self.derive_key(AUDIT_SIGNING_PURPOSE, length)
 
     def on_minimize(self):
         """Обработчик сворачивания приложения (CACHE-2)."""

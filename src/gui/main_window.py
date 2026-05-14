@@ -121,7 +121,7 @@ class MainWindow(tk.Tk):
             self.quit()
 
     def on_login_success(self):
-        self.audit = AuditManager(self.db)
+        self.audit = AuditManager(self.db, key_manager=self.key_manager)
         self.status_label.config(text="Статус: Разблокировано")
         event_bus.publish("UserLoggedIn", data={"user": "default_user"})
         self.start_clipboard_monitor()
@@ -179,6 +179,8 @@ class MainWindow(tk.Tk):
         if self.clipboard_monitor:
             self.clipboard_monitor.stop()
         self.clipboard_service.shutdown()
+        if self.audit and hasattr(self.audit, "shutdown"):
+            self.audit.shutdown()
         if self.key_manager:
             self.key_manager.lock()
         self.destroy()
@@ -461,14 +463,28 @@ class MainWindow(tk.Tk):
     def show_audit_window(self):
         win = tk.Toplevel(self)
         win.title("Журнал аудита")
-        win.geometry("600x400")
-        viewer = AuditLogViewer(win)
+        win.geometry("1100x720")
+        viewer = AuditLogViewer(
+            win,
+            db=self.db,
+            audit_manager=self.audit,
+            key_manager=self.key_manager,
+            on_entry_select=self.highlight_entry_from_audit,
+        )
         viewer.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
-        if self.db:
-            logs = self.db.fetchall("SELECT timestamp, action, details FROM audit_log ORDER BY timestamp DESC")
-            for log in logs:
-                viewer.log(f"{log[0]} - {log[1]}: {log[2]}")
+    def highlight_entry_from_audit(self, entry_id: str):
+        if not entry_id:
+            return
+        if entry_id not in self.table.get_children():
+            self.load_entries()
+        if entry_id in self.table.get_children():
+            self.table.selection_set(entry_id)
+            self.table.focus(entry_id)
+            self.table.see(entry_id)
+            self.update_status(f"Аудит: выделена запись {entry_id}")
+        else:
+            messagebox.showinfo("Журнал аудита", f"Запись {entry_id} не найдена в текущем хранилище.", parent=self)
 
     def show_about(self):
         messagebox.showinfo(

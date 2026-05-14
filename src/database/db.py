@@ -3,16 +3,18 @@ import os
 import shutil
 import sqlite3
 import threading
+from contextlib import contextmanager
 
 logger = logging.getLogger("Database")
 
-DB_SCHEMA_VERSION = 3
+DB_SCHEMA_VERSION = 5
 
 
 class DatabaseHelper:
     def __init__(self, db_path: str):
         self.db_path = db_path
         self._local = threading.local()
+        self._audit_reads_allowed = False
         self._initialize_db()
 
     def _get_connection(self) -> sqlite3.Connection:
@@ -34,6 +36,7 @@ class DatabaseHelper:
         version = cursor.fetchone()[0]
 
         self._create_supporting_tables(cursor)
+        self._migrate_audit_log(cursor)
 
         if self._table_exists(cursor, "vault_entries"):
             if self._vault_entries_needs_migration(cursor):
@@ -53,11 +56,95 @@ class DatabaseHelper:
             """
             CREATE TABLE IF NOT EXISTS audit_log (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sequence_number INTEGER UNIQUE,
+                previous_hash TEXT,
+                entry_data BLOB,
+                entry_hash TEXT,
+                event_type TEXT,
                 action TEXT NOT NULL,
                 timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 entry_id INTEGER,
                 details TEXT,
-                signature BLOB
+                signature TEXT,
+                public_key TEXT
+            )
+            """
+        )
+
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS audit_keys (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                key_type TEXT UNIQUE NOT NULL,
+                public_key TEXT NOT NULL,
+                algorithm TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS audit_log_archive (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sequence_number INTEGER,
+                previous_hash TEXT,
+                entry_data BLOB,
+                entry_hash TEXT,
+                event_type TEXT,
+                action TEXT,
+                timestamp TIMESTAMP,
+                entry_id INTEGER,
+                details TEXT,
+                signature TEXT,
+                public_key TEXT,
+                archived_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS audit_security_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_type TEXT NOT NULL,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                details TEXT NOT NULL
+            )
+            """
+        )
+
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS audit_rotation_policy (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                max_entries INTEGER NOT NULL DEFAULT 10000,
+                max_age_days INTEGER NOT NULL DEFAULT 365,
+                auto_archive INTEGER NOT NULL DEFAULT 1
+            )
+            """
+        )
+        cursor.execute(
+            """
+            INSERT OR IGNORE INTO audit_rotation_policy
+            (id, max_entries, max_age_days, auto_archive)
+            VALUES (1, 10000, 365, 1)
+            """
+        )
+
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS audit_export_schedule (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                export_format TEXT NOT NULL,
+                frequency TEXT NOT NULL,
+                output_dir TEXT NOT NULL,
+                retention_days INTEGER NOT NULL DEFAULT 30,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                last_run_at TIMESTAMP,
+                next_run_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
             """
         )
@@ -103,6 +190,36 @@ class DatabaseHelper:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_vault_updated_at ON vault_entries(updated_at)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_vault_tags ON vault_entries(tags)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_settings_key ON settings(setting_key)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_event_type ON audit_log(event_type)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_sequence ON audit_log(sequence_number)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_event_timestamp ON audit_log(event_type, timestamp)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_entry_id ON audit_log(entry_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_archive_sequence ON audit_log_archive(sequence_number)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_security_timestamp ON audit_security_events(timestamp)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_export_schedule_next ON audit_export_schedule(next_run_at)")
+
+    def _migrate_audit_log(self, cursor):
+        cursor.execute("PRAGMA table_info(audit_log)")
+        columns = {row[1] for row in cursor.fetchall()}
+        additions = {
+            "sequence_number": "INTEGER UNIQUE",
+            "previous_hash": "TEXT",
+            "entry_data": "BLOB",
+            "entry_hash": "TEXT",
+            "event_type": "TEXT",
+            "public_key": "TEXT",
+        }
+        if "signature" not in columns:
+            additions["signature"] = "TEXT"
+
+        for column, definition in additions.items():
+            if column not in columns:
+                cursor.execute(f"ALTER TABLE audit_log ADD COLUMN {column} {definition}")
+
+        if "event_type" not in columns and "action" in columns:
+            cursor.execute("UPDATE audit_log SET event_type = action WHERE event_type IS NULL")
 
     @staticmethod
     def _table_exists(cursor, table_name: str) -> bool:
@@ -156,12 +273,17 @@ class DatabaseHelper:
         cursor.execute("ALTER TABLE vault_entries_new RENAME TO vault_entries")
 
     def execute(self, query: str, params: tuple = ()):
+        self._guard_audit_mutation(query)
         conn = self._get_connection()
         cursor = conn.cursor()
         cursor.execute(query, params)
         if not getattr(self._local, "explicit_transaction", False):
             conn.commit()
         return cursor.lastrowid
+
+    def unsafe_audit_execute(self, query: str, params: tuple = ()):
+        with self.audit_maintenance():
+            return self.execute(query, params)
 
     def execute_many(self, queries: list):
         conn = self._get_connection()
@@ -193,16 +315,152 @@ class DatabaseHelper:
         logger.warning("Transaction rolled back")
 
     def fetchall(self, query: str, params: tuple = ()):
+        self._guard_audit_read(query)
         conn = self._get_connection()
         cursor = conn.cursor()
         cursor.execute(query, params)
         return cursor.fetchall()
 
     def fetchone(self, query: str, params: tuple = ()):
+        self._guard_audit_read(query)
         conn = self._get_connection()
         cursor = conn.cursor()
         cursor.execute(query, params)
         return cursor.fetchone()
+
+    def iter_rows(self, query: str, params: tuple = (), batch_size: int = 500):
+        self._guard_audit_read(query)
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute(query, params)
+        while True:
+            rows = cursor.fetchmany(batch_size)
+            if not rows:
+                break
+            for row in rows:
+                yield row
+
+    def enable_audit_read(self):
+        self._audit_reads_allowed = True
+
+    def disable_audit_read(self):
+        self._audit_reads_allowed = False
+
+    @contextmanager
+    def audit_read_access(self):
+        old_value = self._audit_reads_allowed
+        self._audit_reads_allowed = True
+        try:
+            yield
+        finally:
+            self._audit_reads_allowed = old_value
+
+    @contextmanager
+    def audit_maintenance(self):
+        old_value = getattr(self._local, "audit_maintenance", False)
+        self._local.audit_maintenance = True
+        try:
+            yield
+        finally:
+            self._local.audit_maintenance = old_value
+
+    def _guard_audit_mutation(self, query: str):
+        normalized = " ".join(str(query or "").lower().split())
+        if getattr(self._local, "audit_maintenance", False):
+            return
+        if normalized.startswith("update audit_log") or normalized.startswith("delete from audit_log"):
+            raise PermissionError("Audit log is append-only.")
+
+    def _guard_audit_read(self, query: str):
+        normalized = " ".join(str(query or "").lower().split())
+        if "from audit_log" not in normalized:
+            return
+        if self._audit_reads_allowed or getattr(self._local, "audit_maintenance", False):
+            return
+        raise PermissionError("Audit log read requires authenticated access.")
+
+    def get_audit_rotation_policy(self) -> dict:
+        row = self.fetchone(
+            "SELECT max_entries, max_age_days, auto_archive FROM audit_rotation_policy WHERE id = 1"
+        )
+        if not row:
+            return {"max_entries": 10000, "max_age_days": 365, "auto_archive": True}
+        return {
+            "max_entries": int(row[0]),
+            "max_age_days": int(row[1]),
+            "auto_archive": bool(row[2]),
+        }
+
+    def set_audit_rotation_policy(
+        self,
+        max_entries: int = 10000,
+        max_age_days: int = 365,
+        auto_archive: bool = True,
+    ):
+        self.execute(
+            """
+            INSERT INTO audit_rotation_policy (id, max_entries, max_age_days, auto_archive)
+            VALUES (1, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                max_entries = excluded.max_entries,
+                max_age_days = excluded.max_age_days,
+                auto_archive = excluded.auto_archive
+            """,
+            (int(max_entries), int(max_age_days), 1 if auto_archive else 0),
+        )
+
+    def rotate_audit_logs(self) -> int:
+        policy = self.get_audit_rotation_policy()
+        if not policy["auto_archive"]:
+            return 0
+
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT sequence_number
+            FROM audit_log
+            WHERE sequence_number IS NOT NULL
+            ORDER BY sequence_number DESC
+            LIMIT 1 OFFSET ?
+            """,
+            (policy["max_entries"] - 1,),
+        )
+        cutoff_row = cursor.fetchone()
+        cutoff_sequence = cutoff_row[0] if cutoff_row else None
+
+        conditions = []
+        params = []
+        if cutoff_sequence is not None:
+            conditions.append("sequence_number < ?")
+            params.append(cutoff_sequence)
+        if policy["max_age_days"] > 0:
+            conditions.append("timestamp < datetime('now', ?)")
+            params.append(f"-{policy['max_age_days']} days")
+        if not conditions:
+            return 0
+
+        where_clause = " OR ".join(conditions)
+        cursor.execute(f"SELECT COUNT(*) FROM audit_log WHERE {where_clause}", tuple(params))
+        count = cursor.fetchone()[0]
+        if count == 0:
+            return 0
+
+        cursor.execute(
+            f"""
+            INSERT INTO audit_log_archive
+            (sequence_number, previous_hash, entry_data, entry_hash, event_type, action,
+             timestamp, entry_id, details, signature, public_key)
+            SELECT sequence_number, previous_hash, entry_data, entry_hash, event_type, action,
+                   timestamp, entry_id, details, signature, public_key
+            FROM audit_log
+            WHERE {where_clause}
+            """,
+            tuple(params),
+        )
+        cursor.execute(f"DELETE FROM audit_log WHERE {where_clause}", tuple(params))
+        conn.commit()
+        return count
 
     def backup(self, backup_path: str) -> bool:
         try:
@@ -217,6 +475,64 @@ class DatabaseHelper:
         except Exception as e:
             logger.error(f"Backup error: {e}")
             return False
+
+    def validate_integrity(self) -> dict:
+        try:
+            row = self.fetchone("PRAGMA integrity_check")
+            ok = bool(row and row[0] == "ok")
+            return {"ok": ok, "message": row[0] if row else "no result"}
+        except Exception as error:
+            return {"ok": False, "message": str(error)}
+
+    def recover_to(self, recovered_db_path: str) -> dict:
+        source_ok = self.validate_integrity()
+        recovered = DatabaseHelper(recovered_db_path)
+        copied_entries = 0
+
+        try:
+            for table in ("audit_log", "audit_keys", "audit_security_events"):
+                try:
+                    rows = self.fetchall(f"SELECT * FROM {table}")
+                    columns = [row[1] for row in self.fetchall(f"PRAGMA table_info({table})")]
+                except Exception:
+                    continue
+
+                if not rows or not columns:
+                    continue
+
+                placeholders = ", ".join(["?"] * len(columns))
+                column_list = ", ".join(columns)
+                for row in rows:
+                    recovered.execute(
+                        f"INSERT OR IGNORE INTO {table} ({column_list}) VALUES ({placeholders})",
+                        tuple(row),
+                    )
+                    if table == "audit_log":
+                        copied_entries += 1
+        finally:
+            recovered.close()
+
+        return {
+            "source_ok": source_ok["ok"],
+            "source_message": source_ok["message"],
+            "recovered_db_path": recovered_db_path,
+            "copied_audit_entries": copied_entries,
+        }
+
+    @staticmethod
+    def recover_corrupt_database(corrupt_db_path: str, recovered_db_path: str) -> dict:
+        quarantine_path = f"{corrupt_db_path}.corrupt"
+        if os.path.exists(corrupt_db_path):
+            shutil.copy2(corrupt_db_path, quarantine_path)
+
+        recovered = DatabaseHelper(recovered_db_path)
+        recovered.close()
+        return {
+            "source_ok": False,
+            "source_message": "database file is corrupt or unreadable",
+            "quarantine_path": quarantine_path,
+            "recovered_db_path": recovered_db_path,
+        }
 
     def close(self):
         if hasattr(self._local, "connection"):
