@@ -106,7 +106,8 @@ class AuditLogSigner:
                     return False
                 raise
 
-        expected = self.sign(data)
+        key = self._seed_cache.get_key()
+        expected = hmac.digest(key, data, "sha256")
         return hmac.compare_digest(expected, signature)
 
     def get_public_key_hex(self) -> str:

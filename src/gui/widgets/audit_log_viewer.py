@@ -1,4 +1,5 @@
 import json
+import os
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog, simpledialog
 from datetime import datetime, timedelta, timezone
@@ -22,6 +23,8 @@ class AuditLogViewer(ttk.Frame):
         self.sort_desc = True
         self.rows = []
         self.filtered_rows = []
+        self.total_rows = 0
+        self.filtered_total_rows = 0
 
         self._build_filters()
         self._build_dashboard()
@@ -71,8 +74,10 @@ class AuditLogViewer(ttk.Frame):
         ttk.Button(filters, text="Сброс", command=self.reset_filters).grid(row=1, column=6, padx=2, pady=(4, 0))
         ttk.Button(filters, text="Проверить", command=self.verify_logs).grid(row=0, column=7, padx=2)
         ttk.Button(filters, text="Экспорт", command=self.export_logs).grid(row=1, column=7, padx=2, pady=(4, 0))
+        ttk.Button(filters, text="Report", command=self.export_verification_report).grid(row=0, column=8, padx=2)
+        ttk.Button(filters, text="Schedules", command=self.manage_export_schedules).grid(row=1, column=8, padx=2, pady=(4, 0))
 
-        filters.columnconfigure(8, weight=1)
+        filters.columnconfigure(9, weight=1)
 
     def _build_dashboard(self):
         dashboard = ttk.Frame(self)
@@ -170,24 +175,79 @@ class AuditLogViewer(ttk.Frame):
         self.context_menu.add_command(label="Выделить запись хранилища", command=self.highlight_selected_entry)
         self.context_menu.add_separator()
         self.context_menu.add_command(label="Проверить целостность", command=self.verify_logs)
+        self.context_menu.add_command(label="Export verification report", command=self.export_verification_report)
 
     def refresh(self):
         if self.audit_manager and hasattr(self.audit_manager, "flush_async"):
             self.audit_manager.flush_async()
         if not self.db:
             self.rows = []
-            self.apply_filters(reset_page=True)
+            self.total_rows = 0
+            self.filtered_total_rows = 0
+            self.filtered_rows = []
+            self._load_page()
+            self._update_stats()
+            self._draw_frequency_graph()
             return
+
+        where_clause, params = self._build_query_filters()
+        count_row = self.db.fetchone(f"SELECT COUNT(*) FROM audit_log {where_clause}", tuple(params))
+        self.filtered_total_rows = int(count_row[0] or 0) if count_row else 0
+        total_row = self.db.fetchone("SELECT COUNT(*) FROM audit_log")
+        self.total_rows = int(total_row[0] or 0) if total_row else 0
+        total_pages = max(1, (self.filtered_total_rows + self.PAGE_SIZE - 1) // self.PAGE_SIZE)
+        self.page = min(self.page, total_pages - 1)
+        offset = self.page * self.PAGE_SIZE
 
         query = """
             SELECT sequence_number, timestamp, COALESCE(event_type, action), details,
                    entry_id, entry_data, entry_hash, signature, previous_hash
             FROM audit_log
+            {where_clause}
             ORDER BY sequence_number DESC, timestamp DESC
+            LIMIT ? OFFSET ?
         """
-        self.rows = [self._row_to_dict(row, index) for index, row in enumerate(self.db.fetchall(query))]
+        page_rows = self.db.fetchall(query.format(where_clause=where_clause), tuple(params + [self.PAGE_SIZE, offset]))
+        self.rows = [self._row_to_dict(row, offset + index) for index, row in enumerate(page_rows)]
+        self.filtered_rows = self._sort_rows(self.rows)
         self._update_event_types()
-        self.apply_filters(reset_page=True)
+        self._load_page()
+        self._update_stats()
+        self._draw_frequency_graph()
+
+    def _build_query_filters(self):
+        conditions = []
+        params = []
+        event_type = self.event_type_var.get().strip()
+        severity = self.severity_var.get().strip()
+        user = self.user_var.get().strip()
+        search = self.search_var.get().strip()
+        date_from = self._normalized_filter_date(self.date_from_var.get(), end_of_day=False)
+        date_to = self._normalized_filter_date(self.date_to_var.get(), end_of_day=True)
+
+        if event_type:
+            conditions.append("COALESCE(event_type, action) = ?")
+            params.append(event_type)
+        if severity:
+            conditions.append("CAST(entry_data AS TEXT) LIKE ?")
+            params.append(f'%"severity":"{severity}"%')
+        if user:
+            conditions.append("CAST(entry_data AS TEXT) LIKE ?")
+            params.append(f"%{user}%")
+        if date_from:
+            conditions.append("timestamp >= ?")
+            params.append(date_from)
+        if date_to:
+            conditions.append("timestamp <= ?")
+            params.append(date_to)
+        if search:
+            conditions.append(
+                "(COALESCE(details, '') LIKE ? OR COALESCE(entry_id, '') LIKE ? OR CAST(entry_data AS TEXT) LIKE ?)"
+            )
+            params.extend([f"%{search}%", f"%{search}%", f"%{search}%"])
+
+        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        return where_clause, params
 
     def _row_to_dict(self, row, index):
         sequence_number, timestamp, event_type, details, entry_id, entry_data, entry_hash, signature, previous_hash = row
@@ -212,46 +272,26 @@ class AuditLogViewer(ttk.Frame):
         }
 
     def _update_event_types(self):
-        values = sorted({row["event_type"] for row in self.rows if row["event_type"]})
+        if self.db:
+            rows = self.db.fetchall(
+                "SELECT DISTINCT COALESCE(event_type, action) FROM audit_log "
+                "WHERE COALESCE(event_type, action) IS NOT NULL ORDER BY 1"
+            )
+            values = [row[0] for row in rows if row[0]]
+        else:
+            values = sorted({row["event_type"] for row in self.rows if row["event_type"]})
         self.event_type_box["values"] = [""] + values
 
     def apply_filters(self, reset_page=False):
         if reset_page:
             self.page = 0
-
-        event_type = self.event_type_var.get().strip()
-        severity = self.severity_var.get().strip()
-        user = self.user_var.get().strip().lower()
-        search = self.search_var.get().strip().lower()
-        date_from = self._parse_date(self.date_from_var.get())
-        date_to = self._parse_date(self.date_to_var.get(), end_of_day=True)
-
-        result = []
-        for row in self.rows:
-            if event_type and row["event_type"] != event_type:
-                continue
-            if severity and row["severity"] != severity:
-                continue
-            if user and user not in row["user_id"].lower():
-                continue
-            row_dt = self._parse_date(row["timestamp"])
-            if date_from and row_dt and row_dt < date_from:
-                continue
-            if date_to and row_dt and row_dt > date_to:
-                continue
-            if search and search not in row.get("search_text", ""):
-                continue
-            result.append(row)
-
-        self.filtered_rows = self._sort_rows(result)
-        self._load_page()
-        self._update_stats()
-        self._draw_frequency_graph()
+        self.refresh()
 
     def reset_filters(self):
         for var in (self.event_type_var, self.severity_var, self.user_var, self.date_from_var, self.date_to_var, self.search_var):
             var.set("")
-        self.apply_filters(reset_page=True)
+        self.page = 0
+        self.refresh()
 
     def sort_by(self, column):
         if self.sort_column == column:
@@ -259,7 +299,7 @@ class AuditLogViewer(ttk.Frame):
         else:
             self.sort_column = column
             self.sort_desc = False
-        self.apply_filters()
+        self.refresh()
 
     def _sort_rows(self, rows):
         return sorted(rows, key=self._sort_key, reverse=self.sort_desc)
@@ -272,12 +312,11 @@ class AuditLogViewer(ttk.Frame):
 
     def _load_page(self):
         self.table.delete(*self.table.get_children())
-        total_pages = max(1, (len(self.filtered_rows) + self.PAGE_SIZE - 1) // self.PAGE_SIZE)
+        total_pages = max(1, (self.filtered_total_rows + self.PAGE_SIZE - 1) // self.PAGE_SIZE)
         self.page = min(self.page, total_pages - 1)
         start = self.page * self.PAGE_SIZE
-        end = start + self.PAGE_SIZE
 
-        for row in self.filtered_rows[start:end]:
+        for row in self.filtered_rows:
             self.table.insert(
                 "",
                 tk.END,
@@ -294,18 +333,33 @@ class AuditLogViewer(ttk.Frame):
             )
 
         shown_from = 0 if not self.filtered_rows else start + 1
-        shown_to = min(end, len(self.filtered_rows))
-        self.page_var.set(f"Страница {self.page + 1} из {total_pages} | {shown_from}-{shown_to} из {len(self.filtered_rows)}")
+        shown_to = min(start + len(self.filtered_rows), self.filtered_total_rows)
+        self.page_var.set(f"Страница {self.page + 1} из {total_pages} | {shown_from}-{shown_to} из {self.filtered_total_rows}")
 
     def _update_stats(self):
-        failed_logins = sum(1 for row in self.rows if row["event_type"] in {"LoginFailed", "FailedAuthAttempt"})
-        suspicious = sum(1 for row in self.rows if row["source"] == "security" or "Suspicious" in row["event_type"])
+        if self.db:
+            failed_row = self.db.fetchone(
+                "SELECT COUNT(*) FROM audit_log WHERE COALESCE(event_type, action) IN ('LoginFailed', 'FailedAuthAttempt')"
+            )
+            suspicious_row = self.db.fetchone(
+                "SELECT COUNT(*) FROM audit_log "
+                "WHERE COALESCE(event_type, action) LIKE '%Suspicious%' OR CAST(entry_data AS TEXT) LIKE '%\"source\":\"security\"%'"
+            )
+            size_row = self.db.fetchone(
+                "SELECT COALESCE(SUM(LENGTH(entry_data) + LENGTH(COALESCE(signature, '')) + LENGTH(COALESCE(entry_hash, ''))), 0) FROM audit_log"
+            )
+            failed_logins = int(failed_row[0] or 0) if failed_row else 0
+            suspicious = int(suspicious_row[0] or 0) if suspicious_row else 0
+            log_size = int(size_row[0] or 0) if size_row else 0
+        else:
+            failed_logins = sum(1 for row in self.rows if row["event_type"] in {"LoginFailed", "FailedAuthAttempt"})
+            suspicious = sum(1 for row in self.rows if row["source"] == "security" or "Suspicious" in row["event_type"])
+            log_size = sum(row["entry_data_size"] + len(row["signature"] or "") + len(row["entry_hash"] or "") for row in self.rows)
         self.stats_var.set(
-            f"Записей: {len(self.rows)} | Отфильтровано: {len(self.filtered_rows)} | "
+            f"Записей: {self.total_rows} | Отфильтровано: {self.filtered_total_rows} | "
             f"Ошибок входа: {failed_logins} | Подозрительных: {suspicious}"
         )
 
-        log_size = sum(row["entry_data_size"] + len(row["signature"] or "") + len(row["entry_hash"] or "") for row in self.rows)
         self.size_var.set(f"Размер журнала: {self._format_size(log_size)}")
 
         status = self.audit_manager.verifier.get_status() if self.audit_manager and hasattr(self.audit_manager, "verifier") else {}
@@ -357,12 +411,12 @@ class AuditLogViewer(ttk.Frame):
     def prev_page(self):
         if self.page > 0:
             self.page -= 1
-            self._load_page()
+            self.refresh()
 
     def next_page(self):
-        if (self.page + 1) * self.PAGE_SIZE < len(self.filtered_rows):
+        if (self.page + 1) * self.PAGE_SIZE < self.filtered_total_rows:
             self.page += 1
-            self._load_page()
+            self.refresh()
 
     def on_select(self, _event=None):
         row = self._selected_row()
@@ -420,6 +474,30 @@ class AuditLogViewer(ttk.Frame):
         else:
             messagebox.showerror("Аудит", "Обнаружено нарушение целостности журнала.", parent=self)
 
+    def export_verification_report(self):
+        if not self.audit_manager:
+            messagebox.showwarning("Аудит", "Проверка недоступна: AuditManager не подключён.", parent=self)
+            return
+        output_path = filedialog.asksaveasfilename(
+            parent=self,
+            title="Сохранить отчёт проверки",
+            defaultextension=".json",
+            filetypes=[("JSON report", "*.json"), ("All files", "*.*")],
+        )
+        if not output_path:
+            return
+        try:
+            report = self.audit_manager.verify_manual(export_path=output_path)
+            self._update_stats()
+            status = "OK" if report.get("verified") else "FAILED"
+            messagebox.showinfo(
+                "Аудит",
+                f"Отчёт проверки сохранён.\nСтатус: {status}\nЗаписей: {report.get('total_entries', 0)}",
+                parent=self,
+            )
+        except Exception as error:
+            messagebox.showerror("Аудит", f"Не удалось сохранить отчёт проверки:\n{error}", parent=self)
+
     def export_logs(self):
         if not self.db or not self.audit_manager or not self.key_manager:
             messagebox.showwarning("Аудит", "Экспорт недоступен: журнал или ключи не подключены.", parent=self)
@@ -427,7 +505,7 @@ class AuditLogViewer(ttk.Frame):
 
         export_format = simpledialog.askstring(
             "Экспорт аудита",
-            "Формат экспорта: json, csv или pdf",
+            "Формат экспорта: json, csv, pdf или cef",
             initialvalue="json",
             parent=self,
         )
@@ -436,7 +514,7 @@ class AuditLogViewer(ttk.Frame):
 
         export_format = export_format.lower().lstrip(".")
         if export_format not in AuditLogExporter.SUPPORTED_FORMATS:
-            messagebox.showerror("Экспорт аудита", "Поддерживаются только форматы json, csv и pdf.", parent=self)
+            messagebox.showerror("Экспорт аудита", "Поддерживаются только форматы json, csv, pdf и cef.", parent=self)
             return
 
         default_extension = f".{export_format}.enc"
@@ -495,6 +573,132 @@ class AuditLogViewer(ttk.Frame):
             return bool(self.key_manager.unlock(password))
         except Exception:
             return False
+
+    def manage_export_schedules(self):
+        if not self.db or not self.audit_manager or not self.key_manager:
+            messagebox.showwarning("Аудит", "Расписание экспорта недоступно: журнал или ключи не подключены.", parent=self)
+            return
+
+        window = tk.Toplevel(self)
+        window.title("Расписание экспорта аудита")
+        window.geometry("880x320")
+
+        columns = ("id", "name", "format", "frequency", "enabled", "next_run_at", "last_run_at", "output_dir")
+        tree = ttk.Treeview(window, columns=columns, show="headings", height=10)
+        labels = {
+            "id": "ID",
+            "name": "Name",
+            "format": "Format",
+            "frequency": "Frequency",
+            "enabled": "Enabled",
+            "next_run_at": "Next run",
+            "last_run_at": "Last run",
+            "output_dir": "Directory",
+        }
+        widths = {
+            "id": 50,
+            "name": 130,
+            "format": 70,
+            "frequency": 90,
+            "enabled": 70,
+            "next_run_at": 160,
+            "last_run_at": 160,
+            "output_dir": 230,
+        }
+        for column in columns:
+            tree.heading(column, text=labels[column])
+            tree.column(column, width=widths[column], minwidth=40)
+        tree.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
+
+        actions = ttk.Frame(window)
+        actions.pack(fill=tk.X, padx=8, pady=(0, 8))
+
+        def refresh_schedules():
+            tree.delete(*tree.get_children())
+            rows = self.db.fetchall(
+                """
+                SELECT id, name, export_format, frequency, enabled, next_run_at, last_run_at, output_dir
+                FROM audit_export_schedule
+                ORDER BY id
+                """
+            )
+            for row in rows:
+                tree.insert("", tk.END, values=row)
+
+        ttk.Button(actions, text="Add", command=lambda: self.create_export_schedule(on_done=refresh_schedules)).pack(side=tk.LEFT)
+        ttk.Button(actions, text="Run due", command=lambda: self.run_due_export_schedules(on_done=refresh_schedules)).pack(side=tk.LEFT, padx=4)
+        ttk.Button(actions, text="Refresh", command=refresh_schedules).pack(side=tk.LEFT)
+        ttk.Button(actions, text="Close", command=window.destroy).pack(side=tk.RIGHT)
+
+        refresh_schedules()
+
+    def create_export_schedule(self, on_done=None):
+        if not self.db or not self.key_manager:
+            messagebox.showwarning("Аудит", "Расписание экспорта недоступно.", parent=self)
+            return
+        name = simpledialog.askstring("Расписание экспорта", "Название расписания:", initialvalue="daily", parent=self)
+        if not name:
+            return
+        output_dir = filedialog.askdirectory(parent=self, title="Папка для экспорта аудита")
+        if not output_dir:
+            return
+        export_format = simpledialog.askstring(
+            "Расписание экспорта",
+            "Формат: json, csv, pdf или cef",
+            initialvalue="json",
+            parent=self,
+        )
+        if not export_format:
+            return
+        frequency = simpledialog.askstring(
+            "Расписание экспорта",
+            "Период: daily, weekly или monthly",
+            initialvalue="daily",
+            parent=self,
+        )
+        if not frequency:
+            return
+        retention_days = simpledialog.askinteger(
+            "Расписание экспорта",
+            "Хранить экспортированные файлы, дней:",
+            initialvalue=30,
+            minvalue=1,
+            parent=self,
+        )
+        if not retention_days:
+            return
+        try:
+            exporter = AuditLogExporter(self.db, key_manager=self.key_manager, audit_logger=self.audit_manager)
+            exporter.create_schedule(
+                name=name,
+                output_dir=os.path.abspath(output_dir),
+                export_format=export_format,
+                frequency=frequency,
+                retention_days=retention_days,
+                enabled=True,
+            )
+            if on_done:
+                on_done()
+            messagebox.showinfo("Расписание экспорта", "Расписание добавлено.", parent=self)
+        except Exception as error:
+            messagebox.showerror("Расписание экспорта", f"Не удалось добавить расписание:\n{error}", parent=self)
+
+    def run_due_export_schedules(self, on_done=None):
+        if not self.db or not self.audit_manager or not self.key_manager:
+            messagebox.showwarning("Аудит", "Расписание экспорта недоступно.", parent=self)
+            return
+        try:
+            if hasattr(self.audit_manager, "flush_async"):
+                self.audit_manager.flush_async()
+            exporter = AuditLogExporter(self.db, key_manager=self.key_manager, audit_logger=self.audit_manager)
+            results = exporter.run_due_schedules(confirm_password=self._confirm_master_password)
+            if on_done:
+                on_done()
+            messagebox.showinfo("Расписание экспорта", f"Выполнено экспортов: {len(results)}", parent=self)
+        except PermissionError:
+            messagebox.showwarning("Расписание экспорта", "Мастер-пароль не подтверждён.", parent=self)
+        except Exception as error:
+            messagebox.showerror("Расписание экспорта", f"Не удалось выполнить расписание:\n{error}", parent=self)
 
     def highlight_selected_entry(self):
         row = self._selected_row()

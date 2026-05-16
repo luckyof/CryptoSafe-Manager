@@ -143,6 +143,16 @@ class SecureClipboardItem:
             for index in range(len(buffer)):
                 buffer[index] = 0
 
+    @staticmethod
+    def _zero_compact_ascii_string(value: str):
+        if not isinstance(value, str) or not value.isascii():
+            return
+        try:
+            data_offset = sys.getsizeof("") - 1
+            ctypes.memset(id(value) + data_offset, 0, len(value))
+        except Exception as exc:
+            logger.debug("Clipboard string wipe failed: %s", exc)
+
 
 class ClipboardService:
 
@@ -203,7 +213,11 @@ class ClipboardService:
             self._clear_clipboard_locked("replaced", publish_event=True)
             item = SecureClipboardItem(data, data_type, source_entry_id)
 
-            if not self.platform.copy_to_clipboard(data):
+            copied = self.platform.copy_to_clipboard(data)
+            if data_type == "password" and getattr(self.platform, "backend_name", None) != "in-memory":
+                SecureClipboardItem._zero_compact_ascii_string(data)
+
+            if not copied:
                 item.secure_wipe()
                 self._publish_clipboard_error(
                     "copy_failed",
@@ -251,17 +265,23 @@ class ClipboardService:
         if not value:
             raise ValueError(f"No clipboard data for entry field: {field_name}")
 
-        if field_name == "password":
-            return self.copy_password(value, source_entry_id=entry_id)
-        if field_name == "username":
-            return self.copy_username(value, source_entry_id=entry_id)
-        if field_name == "notes":
-            return self.copy_notes(value, source_entry_id=entry_id)
-        if field_name == "totp_secret":
-            return self.copy_totp(value, source_entry_id=entry_id)
-        if field_name == "sharing_metadata":
-            return self.copy_encrypted_blob(str(value), source_entry_id=entry_id)
-        return self.copy_text(value, source_entry_id=entry_id)
+        try:
+            if field_name == "password":
+                return self.copy_password(value, source_entry_id=entry_id)
+            if field_name == "username":
+                return self.copy_username(value, source_entry_id=entry_id)
+            if field_name == "notes":
+                return self.copy_notes(value, source_entry_id=entry_id)
+            if field_name == "totp_secret":
+                return self.copy_totp(value, source_entry_id=entry_id)
+            if field_name == "sharing_metadata":
+                return self.copy_encrypted_blob(str(value), source_entry_id=entry_id)
+            return self.copy_text(value, source_entry_id=entry_id)
+        finally:
+            if field_name == "password":
+                SecureClipboardItem._zero_compact_ascii_string(value)
+                entry[field_name] = ""
+                value = ""
 
     def copy_entry_summary(self, entry_manager, entry_id: str) -> bool:
         """Copy a safe multi-field summary from the latest decrypted vault entry."""

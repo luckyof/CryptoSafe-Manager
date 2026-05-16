@@ -17,8 +17,9 @@ ZERO_HASH = "0" * 64
 class AuditLogImportVerifier:
     """Проверка и импорт signed JSON для TEST-3."""
 
-    def __init__(self, db_helper):
+    def __init__(self, db_helper, audit_logger=None):
         self.db = db_helper
+        self.audit_logger = audit_logger
 
     def verify_signed_json(self, signed_json) -> Dict[str, Any]:
         data = self._load_json(signed_json)
@@ -46,7 +47,8 @@ class AuditLogImportVerifier:
                 self._mark_invalid(result, sequence_number, "hash mismatch")
                 continue
 
-            if not self._verify_signature(public_key, entry_bytes, signature):
+            entry_public_key = entry.get("public_key") or public_key
+            if not self._verify_signature(entry_public_key, entry_bytes, signature):
                 self._mark_invalid(result, sequence_number, "invalid signature")
                 continue
 
@@ -97,6 +99,13 @@ class AuditLogImportVerifier:
 
         if hasattr(self.db, "enable_audit_read"):
             self.db.enable_audit_read()
+        if self.audit_logger:
+            self.audit_logger.log_event(
+                "AuditImportCompleted",
+                severity="WARN",
+                source="audit",
+                details={"imported": imported},
+            )
         return {"imported": imported, "verification": verification}
 
     @staticmethod

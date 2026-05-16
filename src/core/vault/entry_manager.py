@@ -10,6 +10,8 @@ Entry Manager — централизованный CRUD контроллер д�
 import json
 import uuid
 import logging
+import ctypes
+import sys
 from difflib import SequenceMatcher
 from datetime import datetime, timezone
 from typing import List, Dict, Optional, Any
@@ -123,7 +125,7 @@ class EntryManager:
             raise RuntimeError(f"Не удалось создать запись: {e}")
 
         # CRUD-3: Публикация события
-        self._publish_event("EntryCreated", entry_id, "created", plaintext_data)
+        self._publish_event("EntryCreated", entry_id, "created", self._redact_sensitive_fields(plaintext_data))
 
         # Аудит
         self._audit("ENTRY_CREATED", entry_id, f"Создана запись: {plaintext_data['title']}")
@@ -157,7 +159,11 @@ class EntryManager:
 
         try:
             plaintext = self.encryption_service.decrypt(encrypted_blob)
-            data = json.loads(plaintext.decode('utf-8'))
+            plaintext_json = plaintext.decode('utf-8')
+            data = json.loads(plaintext_json)
+            self._zero_immutable_bytes(plaintext)
+            self._zero_compact_ascii_string(plaintext_json)
+            self._publish_event("EntryRead", entry_id, "read", {"entry_id": entry_id})
             # SEC-2: Удаляем пароль из возвращаемых данных (не хранить в памяти)
             return data
         except ValueError as e:
@@ -275,7 +281,7 @@ class EntryManager:
             raise RuntimeError(f"Не удалось обновить запись: {e}")
 
         # CRUD-3: Публикация события
-        self._publish_event("EntryUpdated", entry_id, "updated", current)
+        self._publish_event("EntryUpdated", entry_id, "updated", self._redact_sensitive_fields(current))
 
         # Аудит
         self._audit("ENTRY_UPDATED", entry_id, f"Обновлена запись: {current.get('title', '')}")
@@ -329,7 +335,7 @@ class EntryManager:
 
         # CRUD-3: Публикация события
         action = "deleted" if soft_delete else "permanently_deleted"
-        self._publish_event("EntryDeleted", entry_id, action, {"title": title, "soft_delete": soft_delete})
+        self._publish_event("EntryDeleted", entry_id, action, {"title": "[REDACTED]", "soft_delete": soft_delete})
 
         # Аудит
         self._audit("ENTRY_DELETED", entry_id,
@@ -433,6 +439,16 @@ class EntryManager:
                 results.append(entry)
 
         logger.debug(f"Search '{query}' returned {len(results)} results")
+        self._publish_event(
+            "VaultSearch",
+            "",
+            "search",
+            {
+                "query_hash": self._anonymize_search_query(query_lower),
+                "result_count": len(results),
+                "field_filter": field_filter[0] if field_filter else None,
+            },
+        )
         return results
 
     def filter_by_tags(self, tags: List[str]) -> List[Dict[str, Any]]:
@@ -534,6 +550,40 @@ class EntryManager:
             "data": data,
         })
 
+    @staticmethod
+    def _redact_sensitive_fields(data: Optional[Dict]) -> Optional[Dict]:
+        if data is None:
+            return None
+        redacted = dict(data)
+        for field in ("title", "username", "url", "notes"):
+            if field in redacted:
+                redacted[field] = "[REDACTED]"
+        if "password" in redacted:
+            redacted["password"] = "[REDACTED]"
+        if "totp_secret" in redacted:
+            redacted["totp_secret"] = "[REDACTED]"
+        return redacted
+
+    @staticmethod
+    def _zero_compact_ascii_string(value: str):
+        if not isinstance(value, str) or not value.isascii():
+            return
+        try:
+            data_offset = sys.getsizeof("") - 1
+            ctypes.memset(id(value) + data_offset, 0, len(value))
+        except Exception as exc:
+            logger.debug("Entry plaintext string wipe failed: %s", exc)
+
+    @staticmethod
+    def _zero_immutable_bytes(value: bytes):
+        if not isinstance(value, bytes):
+            return
+        try:
+            data_offset = sys.getsizeof(b"") - 1
+            ctypes.memset(id(value) + data_offset, 0, len(value))
+        except Exception as exc:
+            logger.debug("Entry plaintext bytes wipe failed: %s", exc)
+
     def _audit(self, action: str, entry_id: str, details: str):
         """Запись в журнал аудита."""
         try:
@@ -545,6 +595,13 @@ class EntryManager:
             )
         except Exception as e:
             logger.warning(f"Failed to write audit log: {e}")
+
+    @staticmethod
+    def _anonymize_search_query(query: str) -> str:
+        import hashlib
+
+        normalized = " ".join(str(query or "").lower().split())
+        return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
     @staticmethod
     def _parse_field_filter(query: str) -> Optional[tuple]:

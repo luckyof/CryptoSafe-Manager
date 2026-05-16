@@ -28,7 +28,7 @@ logger = logging.getLogger("MainWindow")
 
 
 class MainWindow(tk.Tk):
-    def __init__(self, config: ConfigManager):
+    def __init__(self, config: ConfigManager, defer_startup: bool = False):
         super().__init__()
         self.title("CryptoSafe Manager - Sprint 3")
         self.geometry("900x650")
@@ -50,7 +50,8 @@ class MainWindow(tk.Tk):
         self.create_status_bar()
         self.setup_clipboard_ui()
 
-        self.after(100, self.startup_sequence)
+        if not defer_startup:
+            self.after(100, self.startup_sequence)
 
         self.auto_lock_check_interval = 60000
         self.after(self.auto_lock_check_interval, self.check_inactivity)
@@ -132,7 +133,7 @@ class MainWindow(tk.Tk):
             if search_query:
                 data = self.entry_manager.search_entries(search_query)
             else:
-                data = self.entry_manager.get_all_entries(include_decrypted_password=True)
+                data = self.entry_manager.get_all_entries(include_decrypted_password=False)
 
             if filters:
                 data = self._apply_demo_filters(data, filters)

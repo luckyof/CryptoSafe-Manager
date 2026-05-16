@@ -16,7 +16,7 @@ EXPORT_AAD = b"cryptosafe-manager:audit-export:v1"
 class AuditLogExporter:
     """Безопасный экспорт журнала аудита в форматы Sprint 5."""
 
-    SUPPORTED_FORMATS = {"json", "csv", "pdf"}
+    SUPPORTED_FORMATS = {"json", "csv", "pdf", "cef"}
     SUPPORTED_FREQUENCIES = {"daily", "weekly", "monthly"}
 
     def __init__(self, db_helper, key_manager=None, audit_logger=None):
@@ -180,6 +180,8 @@ class AuditLogExporter:
             return text.encode("utf-8-sig"), "text/csv"
         if export_format == "pdf":
             return AuditLogFormatter.to_pdf(rows, metadata=metadata), "application/pdf"
+        if export_format == "cef":
+            return AuditLogFormatter.to_cef(rows).encode("utf-8"), "text/plain"
         raise ValueError(f"Unsupported export format: {export_format}")
 
     def _encrypt_export(self, content: bytes, metadata: Dict[str, Any]) -> bytes:

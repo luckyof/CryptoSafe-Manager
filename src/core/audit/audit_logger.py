@@ -18,6 +18,7 @@ REDACTED = "[REDACTED]"
 VALID_SEVERITIES = {"INFO", "WARN", "ERROR", "CRITICAL"}
 CRITICAL_SEVERITIES = {"ERROR", "CRITICAL"}
 ASYNC_QUEUE_SIZE = 1000
+DEFAULT_PERIODIC_VERIFY_SECONDS = 24 * 60 * 60
 
 
 class AuditLogger:
@@ -63,6 +64,14 @@ class AuditLogger:
         "SecurityPolicyViolation": ("WARN", "security"),
         "AuditExportCreated": ("WARN", "audit"),
         "AuditExportFailed": ("ERROR", "audit"),
+        "AuditImportCompleted": ("WARN", "audit"),
+        "AuditImportFailed": ("ERROR", "audit"),
+        "PanicModeActivated": ("CRITICAL", "security"),
+        "PanicModeDeactivated": ("WARN", "security"),
+        "TOTPCreated": ("INFO", "totp"),
+        "TOTPViewed": ("INFO", "totp"),
+        "TOTPCopied": ("INFO", "totp"),
+        "TOTPDeleted": ("WARN", "totp"),
         "SQLInjectionAttempt": ("CRITICAL", "security"),
         "PrivilegeEscalationAttempt": ("CRITICAL", "security"),
         "AuditTamperAttempt": ("CRITICAL", "security"),
@@ -79,6 +88,10 @@ class AuditLogger:
         self._async_queue = queue.Queue(maxsize=ASYNC_QUEUE_SIZE)
         self._async_stop = threading.Event()
         self._async_worker = None
+        self._periodic_verify_timer = None
+        self._periodic_verify_interval = float(
+            getattr(db_helper, "periodic_verify_interval_seconds", DEFAULT_PERIODIC_VERIFY_SECONDS)
+        )
         self._fallback_sequence = -1
         self._fallback_last_hash = ZERO_HASH
         self._ensure_audit_schema()
@@ -90,6 +103,7 @@ class AuditLogger:
         self._subscribe()
         if hasattr(self.db, "fetchall"):
             self.verify_periodic()
+            self._start_periodic_verify_timer()
 
     def _ensure_audit_schema(self):
         self.db.execute(
@@ -142,6 +156,7 @@ class AuditLogger:
 
     def shutdown(self):
         """Остановить фоновую запись аудита."""
+        self._cancel_periodic_verify_timer()
         self.flush_async()
         self._async_stop.set()
         if self._async_worker:
@@ -159,9 +174,13 @@ class AuditLogger:
         return self.log_event(event_type, severity="CRITICAL", source="security", details=details or {})
 
     def _subscribe(self):
-        for event_name in self.EVENT_CATALOG:
-            self.bus.subscribe(event_name, self._log_event_from_bus)
-        self.bus.subscribe("EntryAdded", self._log_event_from_bus)
+        buses = [self.bus]
+        if self.bus is not event_bus:
+            buses.append(event_bus)
+        for bus in buses:
+            for event_name in self.EVENT_CATALOG:
+                bus.subscribe(event_name, self._log_event_from_bus)
+            bus.subscribe("EntryAdded", self._log_event_from_bus)
         logger.info("AuditLogger subscribed to security-relevant events")
 
     def _log_event_from_bus(self, event: Event):
@@ -255,6 +274,7 @@ class AuditLogger:
                 "previous_hash": previous_hash,
                 "signature_algorithm": self.signer.algorithm,
             }
+            entry["cef"] = self._to_cef(entry)
 
             entry_json = self._canonical_json(entry)
             entry_data = entry_json.encode("utf-8")
@@ -340,6 +360,31 @@ class AuditLogger:
         self._async_worker = threading.Thread(target=self._async_loop, name="AuditLogWorker", daemon=True)
         self._async_worker.start()
 
+    def _start_periodic_verify_timer(self):
+        if self._periodic_verify_interval <= 0:
+            return
+        self._cancel_periodic_verify_timer()
+        self._periodic_verify_timer = threading.Timer(
+            self._periodic_verify_interval,
+            self._periodic_verify_tick,
+        )
+        self._periodic_verify_timer.daemon = True
+        self._periodic_verify_timer.start()
+
+    def _cancel_periodic_verify_timer(self):
+        if self._periodic_verify_timer is not None:
+            self._periodic_verify_timer.cancel()
+            self._periodic_verify_timer = None
+
+    def _periodic_verify_tick(self):
+        try:
+            self.verify_periodic()
+        except Exception as error:
+            logger.error("Periodic audit verification failed: %s", error)
+        finally:
+            if not self._async_stop.is_set():
+                self._start_periodic_verify_timer()
+
     def _async_loop(self):
         while not self._async_stop.is_set() or not self._async_queue.empty():
             try:
@@ -358,6 +403,30 @@ class AuditLogger:
         return json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
     @classmethod
+    def _to_cef(cls, entry: Dict[str, Any]) -> str:
+        severity_map = {"INFO": 3, "WARN": 6, "ERROR": 8, "CRITICAL": 10}
+        event_type = cls._escape_cef(str(entry.get("event_type", "")))
+        source = cls._escape_cef(str(entry.get("source", "")))
+        severity = severity_map.get(str(entry.get("severity", "INFO")).upper(), 3)
+        extension = {
+            "rt": entry.get("timestamp", ""),
+            "suid": entry.get("user_id", ""),
+            "cs1": entry.get("entry_id") or "",
+            "cs1Label": "entryId",
+            "cs2": entry.get("sequence_number", ""),
+            "cs2Label": "sequenceNumber",
+        }
+        extension_text = " ".join(
+            f"{key}={cls._escape_cef(str(value))}"
+            for key, value in extension.items()
+        )
+        return f"CEF:0|CryptoSafe|Manager|5|{event_type}|{source}|{severity}|{extension_text}"
+
+    @staticmethod
+    def _escape_cef(value: str) -> str:
+        return value.replace("\\", "\\\\").replace("|", "\\|").replace("=", "\\=").replace("\n", " ")
+
+    @classmethod
     def _event_defaults(cls, event_type: str) -> tuple:
         if event_type in cls.EVENT_CATALOG:
             return cls.EVENT_CATALOG[event_type]
@@ -369,8 +438,14 @@ class AuditLogger:
             return "INFO", "auth"
         if "Config" in event_type or "Setting" in event_type:
             return "INFO", "config"
+        if "TOTP" in event_type:
+            return "INFO", "totp"
         if "Suspicious" in event_type or "Tamper" in event_type or "Security" in event_type:
             return "WARN", "security"
+        if "Panic" in event_type:
+            return "CRITICAL", "security"
+        if "Import" in event_type or "Export" in event_type:
+            return "WARN", "audit"
         return "INFO", "system"
 
     @staticmethod
@@ -390,6 +465,10 @@ class AuditLogger:
             "key",
             "encrypted_data",
             "clipboard_content",
+            "title",
+            "username",
+            "url",
+            "notes",
         }
         sanitized = {}
         for key, value in data.items():

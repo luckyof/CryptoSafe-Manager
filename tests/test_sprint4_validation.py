@@ -1,10 +1,8 @@
 import os
-import ctypes
 import subprocess
 import sys
 import threading
 import time
-import textwrap
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
 
@@ -19,6 +17,12 @@ from core.clipboard.platform_adapter import (
     get_default_clipboard_adapter,
 )
 from core.events import EventBus
+from core.key_manager import KeyManager
+from core.vault.entry_manager import EntryManager
+from database.db import DatabaseHelper
+
+
+TEST3_MASTER_PASSWORD = "Str0ng!P@ssw0rd123"
 
 
 class UnlockedState:
@@ -45,85 +49,27 @@ def make_service(config=None, adapter=None):
     return service, adapter, events
 
 
-def _scan_windows_process_memory(pid, needle):
-    kernel32 = ctypes.windll.kernel32
-    process_query_information = 0x0400
-    process_vm_read = 0x0010
-    mem_commit = 0x1000
-    page_guard = 0x100
-    page_noaccess = 0x01
-
-    class MEMORY_BASIC_INFORMATION(ctypes.Structure):
-        _fields_ = [
-            ("BaseAddress", ctypes.c_void_p),
-            ("AllocationBase", ctypes.c_void_p),
-            ("AllocationProtect", ctypes.c_ulong),
-            ("PartitionId", ctypes.c_ushort),
-            ("RegionSize", ctypes.c_size_t),
-            ("State", ctypes.c_ulong),
-            ("Protect", ctypes.c_ulong),
-            ("Type", ctypes.c_ulong),
-        ]
-
-    process = kernel32.OpenProcess(process_query_information | process_vm_read, False, pid)
-    if not process:
-        pytest.skip("Cannot open child process memory for TEST-3 scan")
-
-    try:
-        address = 0
-        chunk_size = 1024 * 1024
-        overlap_size = max(len(needle) - 1, 0)
-        mbi = MEMORY_BASIC_INFORMATION()
-
-        while kernel32.VirtualQueryEx(
-            process,
-            ctypes.c_void_p(address),
-            ctypes.byref(mbi),
-            ctypes.sizeof(mbi),
-        ):
-            protect = mbi.Protect
-            if mbi.State == mem_commit and not (protect & page_guard) and not (protect & page_noaccess):
-                region_start = int(mbi.BaseAddress or 0)
-                region_end = region_start + int(mbi.RegionSize)
-                tail = b""
-                cursor = region_start
-
-                while cursor < region_end:
-                    read_size = min(chunk_size, region_end - cursor)
-                    buffer = ctypes.create_string_buffer(read_size)
-                    bytes_read = ctypes.c_size_t()
-
-                    if kernel32.ReadProcessMemory(
-                        process,
-                        ctypes.c_void_p(cursor),
-                        buffer,
-                        read_size,
-                        ctypes.byref(bytes_read),
-                    ):
-                        chunk = tail + buffer.raw[: bytes_read.value]
-                        if needle in chunk:
-                            return True
-                        tail = chunk[-overlap_size:] if overlap_size else b""
-
-                    cursor += read_size
-
-            next_address = int(mbi.BaseAddress or 0) + int(mbi.RegionSize)
-            if next_address <= address:
-                break
-            address = next_address
-
-        return False
-    finally:
-        kernel32.CloseHandle(process)
+def _write_windows_process_dump(pid, dump_path):
+    command = [
+        "rundll32.exe",
+        r"C:\Windows\System32\comsvcs.dll,MiniDump",
+        str(pid),
+        str(dump_path),
+        "full",
+    ]
+    result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=30)
+    if result.returncode != 0 or not os.path.exists(dump_path):
+        pytest.skip(f"Cannot create Windows process dump for TEST-3: {result.stderr or result.stdout}")
+    _wait_until_dump_readable(dump_path)
 
 
-def _scan_linux_process_memory(pid, needle):
+def _write_linux_process_dump(pid, dump_path):
     maps_path = f"/proc/{pid}/maps"
     mem_path = f"/proc/{pid}/mem"
-    overlap_size = max(len(needle) - 1, 0)
-
     try:
-        with open(maps_path, "r", encoding="utf-8") as maps_file, open(mem_path, "rb", buffering=0) as mem_file:
+        with open(maps_path, "r", encoding="utf-8") as maps_file, open(mem_path, "rb", buffering=0) as mem_file, open(
+            dump_path, "wb"
+        ) as dump_file:
             for line in maps_file:
                 parts = line.split()
                 if len(parts) < 2 or "r" not in parts[1]:
@@ -133,7 +79,6 @@ def _scan_linux_process_memory(pid, needle):
                 start = int(start_raw, 16)
                 end = int(end_raw, 16)
                 cursor = start
-                tail = b""
 
                 while cursor < end:
                     read_size = min(1024 * 1024, end - cursor)
@@ -142,24 +87,74 @@ def _scan_linux_process_memory(pid, needle):
                         data = mem_file.read(read_size)
                     except OSError:
                         break
-
-                    chunk = tail + data
-                    if needle in chunk:
-                        return True
-                    tail = chunk[-overlap_size:] if overlap_size else b""
+                    dump_file.write(data)
                     cursor += read_size
-    except OSError:
-        pytest.skip("Cannot read process memory for TEST-3 scan")
+    except OSError as exc:
+        pytest.skip(f"Cannot create Linux process dump for TEST-3: {exc}")
+    _wait_until_dump_readable(dump_path)
 
-    return False
 
-
-def _process_memory_contains(pid, needle):
+def _write_process_dump(pid, dump_path):
     if sys.platform == "win32":
-        return _scan_windows_process_memory(pid, needle)
+        _write_windows_process_dump(pid, dump_path)
+        return
     if sys.platform.startswith("linux"):
-        return _scan_linux_process_memory(pid, needle)
-    pytest.skip("TEST-3 process memory scan is implemented for Windows and Linux")
+        _write_linux_process_dump(pid, dump_path)
+        return
+    pytest.skip("TEST-3 process dump is implemented for Windows and Linux")
+
+
+def _dump_file_contains(dump_path, needle):
+    overlap_size = max(len(needle) - 1, 0)
+    tail = b""
+    try:
+        with open(dump_path, "rb") as dump_file:
+            while True:
+                chunk = dump_file.read(1024 * 1024)
+                if not chunk:
+                    return False
+                data = tail + chunk
+                if needle in data:
+                    return True
+                tail = data[-overlap_size:] if overlap_size else b""
+    except PermissionError as exc:
+        pytest.skip(f"Cannot read process dump for TEST-3: {exc}")
+
+
+def _wait_until_dump_readable(dump_path, timeout_seconds=10):
+    deadline = time.monotonic() + timeout_seconds
+    last_error = None
+    while time.monotonic() < deadline:
+        try:
+            with open(dump_path, "rb") as dump_file:
+                dump_file.read(1)
+            return
+        except (FileNotFoundError, PermissionError, OSError) as exc:
+            last_error = exc
+            time.sleep(0.1)
+    pytest.skip(f"Process dump is not readable for TEST-3: {last_error}")
+
+
+def _prepare_test3_vault(db_path, secret):
+    db = DatabaseHelper(str(db_path))
+
+    key_manager = KeyManager(db)
+    assert key_manager.setup_new_vault(TEST3_MASTER_PASSWORD)
+
+    entry_manager = EntryManager(db, key_manager)
+    entry_id = entry_manager.create_entry(
+        {
+            "title": "TEST-3 memory dump entry",
+            "username": "test3-user",
+            "password": secret,
+            "url": "https://example.test",
+            "notes": "",
+            "category": "TEST-3",
+            "tags": ["test-3"],
+        }
+    )
+    db.close()
+    return entry_id
 
 
 def test_auto_clear_timing(monkeypatch):
@@ -270,102 +265,21 @@ def test_item_obfuscates_data():
     assert item.reveal() == secret
 
 
-def test_memory_dump_no_plaintext():
+def test_memory_dump_no_plaintext(tmp_path):
     secret = "UNIQUE_SECRET_TEST_PASSWORD_12345_XYZ"
-    child_code = textwrap.dedent(
-        """
-        import ctypes
-        import gc
-        import os
-        import sys
-
-        sys.path.insert(0, os.path.abspath(os.path.join(os.getcwd(), "src")))
-
-        from core.clipboard.clipboard_service import ClipboardService
-        from core.clipboard.platform_adapter import ClipboardAdapter
-        from core.events import EventBus
-
-        class UnlockedState:
-            is_locked = False
-
-        class MemoryConfig(dict):
-            def set(self, key, value):
-                self[key] = value
-
-        class NonRetainingClipboardAdapter(ClipboardAdapter):
-            backend_name = "test-non-retaining"
-
-            def __init__(self):
-                self.copy_calls = 0
-                self.last_payload_length = None
-                self.retained_plaintext = None
-
-            def copy_to_clipboard(self, data):
-                self.copy_calls += 1
-                self.last_payload_length = len(data)
-                return True
-
-            def clear_clipboard(self):
-                return True
-
-            def get_clipboard_content(self):
-                return ""
-
-        def zero_compact_ascii_string(value):
-            if not value.isascii():
-                return
-            data_offset = sys.getsizeof("") - 1
-            ctypes.memset(id(value) + data_offset, 0, len(value))
-
-        def zero_bytearray(value):
-            if value:
-                ctypes.memset(ctypes.addressof(ctypes.c_char.from_buffer(value)), 0, len(value))
-
-        adapter = NonRetainingClipboardAdapter()
-        service = ClipboardService(
-            platform_adapter=adapter,
-            event_system=EventBus(),
-            config=MemoryConfig({"clipboard_timeout": "never"}),
-            state=UnlockedState(),
-            register_exit_handler=False,
-        )
-
-        copied_value = "".join(chr(int(codepoint)) for codepoint in sys.stdin.readline().split(","))
-        target_bytes = bytearray(copied_value, "utf-8")
-        service.copy_password(copied_value, source_entry_id="entry-test-3")
-
-        item = service.current_content
-        mask_valid = (
-            item is not None
-            and len(item._mask) > 0
-            and len(item._data) == len(target_bytes)
-            and bytes(target_bytes) not in bytes(item._data)
-            and bytes(target_bytes) not in bytes(item._mask)
-            and not all(byte == 0 for byte in item._mask)
-            and not all(byte == 0 for byte in item._data)
-            and adapter.copy_calls == 1
-            and adapter.last_payload_length == len(target_bytes)
-            and adapter.retained_plaintext is None
-        )
-
-        zero_bytearray(target_bytes)
-        zero_compact_ascii_string(copied_value)
-        del target_bytes
-        del copied_value
-        gc.collect()
-
-        print(f"{os.getpid()}:{int(mask_valid)}", flush=True)
-        command = sys.stdin.readline().strip()
-        if command == "clear":
-            service.clear_clipboard("manual")
-            gc.collect()
-            print("cleared", flush=True)
-        sys.stdin.readline()
-        """
+    db_path = tmp_path / "test3-vault.db"
+    entry_id = _prepare_test3_vault(db_path, secret)
+    runner_path = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "system", "cryptosafe_test3_app_runner.py")
     )
+    dump_before = str(tmp_path / "test3-before.dmp")
+    dump_after = str(tmp_path / "test3-after.dmp")
+    for dump_path in (dump_before, dump_after):
+        if os.path.exists(dump_path):
+            os.remove(dump_path)
 
     process = subprocess.Popen(
-        [sys.executable, "-c", child_code],
+        [sys.executable, runner_path],
         cwd=os.path.abspath(os.path.join(os.path.dirname(__file__), "..")),
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
@@ -374,26 +288,33 @@ def test_memory_dump_no_plaintext():
     )
 
     try:
-        process.stdin.write(",".join(str(ord(char)) for char in secret) + "\n")
+        process.stdin.write(str(db_path) + "\n")
+        process.stdin.write(entry_id + "\n")
         process.stdin.flush()
 
-        child_status_line = process.stdout.readline().strip()
-        if not child_status_line:
-            pytest.fail(f"TEST-3 child process failed: {process.stderr.read()}")
+        app_status_line = process.stdout.readline().strip()
+        if not app_status_line:
+            pytest.fail(f"TEST-3 CryptoSafe process failed: {process.stderr.read()}")
+        if app_status_line.startswith("SKIP:"):
+            pytest.skip(app_status_line.removeprefix("SKIP:"))
 
-        child_pid_raw, mask_valid_raw = child_status_line.split(":", 1)
-        child_pid = int(child_pid_raw)
+        app_pid_raw, copied_entry_id = app_status_line.split(":", 1)
+        app_pid = int(app_pid_raw)
         target_bytes = secret.encode("utf-8")
 
-        plaintext_found = _process_memory_contains(child_pid, target_bytes)
+        _write_process_dump(app_pid, dump_before)
+        plaintext_found = _dump_file_contains(dump_before, target_bytes)
+
         process.stdin.write("clear\n")
         process.stdin.flush()
         assert process.stdout.readline().strip() == "cleared"
-        residue_found = _process_memory_contains(child_pid, target_bytes)
+
+        _write_process_dump(app_pid, dump_after)
+        residue_found = _dump_file_contains(dump_after, target_bytes)
 
         assert plaintext_found is False, "Plaintext password found in process memory during copy"
         assert residue_found is False, "Plaintext password residue found after clipboard clear"
-        assert mask_valid_raw == "1", "SecureClipboardItem mask or obfuscated data is invalid"
+        assert copied_entry_id == entry_id
     finally:
         if process.stdin:
             try:
@@ -401,7 +322,11 @@ def test_memory_dump_no_plaintext():
                 process.stdin.flush()
             except BrokenPipeError:
                 pass
-        process.wait(timeout=5)
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.terminate()
+            process.wait(timeout=5)
 
 
 def test_wipe_zeroes_buffers():

@@ -68,6 +68,15 @@ class AuditLogFormatter:
         return output.getvalue()
 
     @staticmethod
+    def to_cef(rows: Iterable[Dict[str, Any]]) -> str:
+        lines = []
+        for row in rows:
+            entry = AuditLogFormatter._decode_entry(row.get("entry_data"))
+            cef = entry.get("cef") or AuditLogFormatter._row_to_cef(row, entry)
+            lines.append(cef)
+        return "\n".join(lines) + ("\n" if lines else "")
+
+    @staticmethod
     def to_pdf(rows: Iterable[Dict[str, Any]], metadata: Dict[str, Any] = None) -> bytes:
         metadata = metadata or AuditLogFormatter._default_metadata()
         rows = list(rows)
@@ -137,6 +146,30 @@ class AuditLogFormatter:
             return json.loads(raw.decode("utf-8"))
         except Exception:
             return {}
+
+    @staticmethod
+    def _row_to_cef(row: Dict[str, Any], entry: Dict[str, Any]) -> str:
+        severity_map = {"INFO": 3, "WARN": 6, "ERROR": 8, "CRITICAL": 10}
+        event_type = AuditLogFormatter._escape_cef(str(row.get("event_type") or entry.get("event_type", "")))
+        source = AuditLogFormatter._escape_cef(str(entry.get("source", "")))
+        severity = severity_map.get(str(entry.get("severity", "INFO")).upper(), 3)
+        extension = {
+            "rt": row.get("timestamp") or entry.get("timestamp", ""),
+            "suid": entry.get("user_id", ""),
+            "cs1": row.get("entry_id") or entry.get("entry_id") or "",
+            "cs1Label": "entryId",
+            "cs2": row.get("sequence_number") or entry.get("sequence_number", ""),
+            "cs2Label": "sequenceNumber",
+        }
+        extension_text = " ".join(
+            f"{key}={AuditLogFormatter._escape_cef(str(value))}"
+            for key, value in extension.items()
+        )
+        return f"CEF:0|CryptoSafe|Manager|5|{event_type}|{source}|{severity}|{extension_text}"
+
+    @staticmethod
+    def _escape_cef(value: str) -> str:
+        return value.replace("\\", "\\\\").replace("|", "\\|").replace("=", "\\=").replace("\n", " ")
 
     @staticmethod
     def _default_metadata() -> Dict[str, Any]:

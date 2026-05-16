@@ -11,9 +11,11 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..",
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from core.audit import AuditLogger, AuditLogExporter, AuditLogImportVerifier, AuditLogSigner, AuditLogVerifier
+from core.audit.log_formatters import AuditLogFormatter
 from core.audit.log_exporter import EXPORT_AAD, EXPORT_KEY_PURPOSE
 from core.events import EventBus
 from core.key_manager import KeyManager
+from core.vault.entry_manager import EntryManager
 from database.db import DatabaseHelper
 from gui.widgets.audit_log_viewer import AuditLogViewer
 
@@ -241,7 +243,7 @@ def test_ver_1_startup(tmp_path):
     logger = AuditLogger(db, signer=signer, bus=EventBus())
     sequence = logger.log_event("EntryCreated", source="vault", details={"title": "Original"})
 
-    db.execute("UPDATE audit_log SET entry_hash = ? WHERE sequence_number = ?", ("bad-hash", sequence))
+    db.unsafe_audit_execute("UPDATE audit_log SET entry_hash = ? WHERE sequence_number = ?", ("bad-hash", sequence))
 
     result = AuditLogVerifier(db, signer, bus=EventBus()).verify_on_startup()
 
@@ -305,7 +307,7 @@ def test_ver_4_tamper_event(tmp_path):
     logger = AuditLogger(db, signer=signer, bus=bus)
     sequence = logger.log_event("EntryCreated", source="vault", details={"title": "Tamper"})
 
-    db.execute("UPDATE audit_log SET signature = ? WHERE sequence_number = ?", ("00", sequence))
+    db.unsafe_audit_execute("UPDATE audit_log SET signature = ? WHERE sequence_number = ?", ("00", sequence))
     result = AuditLogVerifier(db, signer, bus=bus).verify_integrity()
     security_count = db.fetchone("SELECT COUNT(*) FROM audit_security_events")[0]
 
@@ -467,8 +469,8 @@ def test_exp_4_range(tmp_path):
     logger = AuditLogger(db, key_manager=key_manager, bus=EventBus())
     first = logger.log_event("EntryCreated", source="vault", details={"title": "First"})
     second = logger.log_event("EntryUpdated", source="vault", details={"title": "Second"})
-    db.execute("UPDATE audit_log SET timestamp = ? WHERE sequence_number = ?", ("2024-01-01T00:00:00+00:00", first))
-    db.execute("UPDATE audit_log SET timestamp = ? WHERE sequence_number = ?", ("2024-02-01T00:00:00+00:00", second))
+    db.unsafe_audit_execute("UPDATE audit_log SET timestamp = ? WHERE sequence_number = ?", ("2024-01-01T00:00:00+00:00", first))
+    db.unsafe_audit_execute("UPDATE audit_log SET timestamp = ? WHERE sequence_number = ?", ("2024-02-01T00:00:00+00:00", second))
 
     export_path = tmp_path / "range.json"
     AuditLogExporter(db, key_manager=key_manager, audit_logger=logger).export(
@@ -594,7 +596,7 @@ def test_test_1_integrity(tmp_path):
     for index in range(1000):
         logger.log_event("EntryCreated", source="vault", details={"index": index})
 
-    db.execute("UPDATE audit_log SET entry_hash = ? WHERE sequence_number = ?", ("tampered", 500))
+    db.unsafe_audit_execute("UPDATE audit_log SET entry_hash = ? WHERE sequence_number = ?", ("tampered", 500))
     result = AuditLogVerifier(db, signer, bus=EventBus()).verify_integrity()
 
     assert result["verified"] is False
@@ -670,7 +672,8 @@ def test_test_4_recovery(tmp_path):
     recovery = db.recover_to(str(tmp_path / "audit-test-4-recovered.db"))
 
     recovered_db = DatabaseHelper(recovery["recovered_db_path"])
-    recovered_count = recovered_db.fetchone("SELECT COUNT(*) FROM audit_log")[0]
+    with recovered_db.audit_read_access():
+        recovered_count = recovered_db.fetchone("SELECT COUNT(*) FROM audit_log")[0]
 
     assert recovery["source_ok"] is True
     assert recovery["copied_audit_entries"] == 1
@@ -702,7 +705,7 @@ def test_test_5_security(tmp_path):
     logger.log_security_attempt("privilege_escalation", {"role": "admin"})
     sequence = logger.log_security_attempt("tampering", {"target": "audit_log"})
 
-    db.execute("UPDATE audit_log SET signature = ? WHERE sequence_number = ?", ("00", sequence))
+    db.unsafe_audit_execute("UPDATE audit_log SET signature = ? WHERE sequence_number = ?", ("00", sequence))
     result = AuditLogVerifier(db, signer, bus=EventBus()).verify_integrity()
     logged_attempts = db.fetchone(
         """
@@ -716,4 +719,208 @@ def test_test_5_security(tmp_path):
     assert result["verified"] is False
     assert result["invalid_entries"][-1]["reason"] == "invalid signature"
 
+    db.close()
+
+
+def test_int_1_event_bus(tmp_path):
+    db = DatabaseHelper(str(tmp_path / "audit-int-1.db"))
+    key_manager = KeyManager(db)
+    assert key_manager.setup_new_vault("Str0ng!P@ssw0rd123")
+
+    bus = EventBus()
+    logger = AuditLogger(db, key_manager=key_manager, bus=bus)
+    bus.publish("PanicModeActivated", {"reason": "hotkey"})
+    bus.publish("TOTPViewed", {"entry_id": "entry-totp", "totp_secret": "raw-secret"})
+    logger.flush_async()
+
+    rows = db.fetchall(
+        "SELECT event_type, entry_data FROM audit_log WHERE event_type IN ('PanicModeActivated', 'TOTPViewed')"
+    )
+    text = "\n".join(row[1].decode("utf-8") if isinstance(row[1], bytes) else str(row[1]) for row in rows)
+
+    assert {row[0] for row in rows} == {"PanicModeActivated", "TOTPViewed"}
+    assert "raw-secret" not in text
+
+    logger.shutdown()
+    db.close()
+
+
+def test_int_2_vault_events(tmp_path):
+    db = DatabaseHelper(str(tmp_path / "audit-int-2.db"))
+    key_manager = KeyManager(db)
+    assert key_manager.setup_new_vault("Str0ng!P@ssw0rd123")
+
+    bus = EventBus()
+    logger = AuditLogger(db, key_manager=key_manager, bus=bus)
+    manager = EntryManager(db, key_manager)
+
+    entry_id = manager.create_entry({"title": "Work Email", "username": "ivan", "password": "Secret123!"})
+    manager.update_entry(entry_id, {"notes": "updated"})
+    manager.search_entries("Work Email")
+    manager.delete_entry(entry_id, soft_delete=True)
+    logger.flush_async()
+
+    rows = db.fetchall(
+        """
+        SELECT event_type, entry_id, details
+        FROM audit_log
+        WHERE event_type IN ('EntryCreated', 'EntryRead', 'EntryUpdated', 'EntryDeleted', 'VaultSearch')
+        """
+    )
+    event_types = {row[0] for row in rows}
+    details_text = "\n".join(row[2] or "" for row in rows)
+
+    assert {"EntryCreated", "EntryRead", "EntryUpdated", "EntryDeleted", "VaultSearch"}.issubset(event_types)
+    assert any(row[1] == entry_id for row in rows if row[0].startswith("Entry"))
+    assert "Work Email" not in details_text
+    assert "query_hash" in details_text
+
+    logger.shutdown()
+    db.close()
+
+
+def test_int_3_clipboard_events(tmp_path):
+    db = DatabaseHelper(str(tmp_path / "audit-int-3.db"))
+    key_manager = KeyManager(db)
+    assert key_manager.setup_new_vault("Str0ng!P@ssw0rd123")
+
+    bus = EventBus()
+    logger = AuditLogger(db, key_manager=key_manager, bus=bus)
+    bus.publish(
+        "ClipboardCopied",
+        {
+            "data_type": "password",
+            "source_entry_id": "entry-clip",
+            "clipboard_content": "plain-password",
+            "timeout": 30,
+        },
+    )
+    bus.publish("ClipboardMonitorError", {"reason": "poll_failed", "message": "backend failed"})
+    logger.flush_async()
+
+    rows = db.fetchall(
+        "SELECT event_type, entry_id, entry_data FROM audit_log WHERE event_type LIKE 'Clipboard%'"
+    )
+    text = "\n".join(row[2].decode("utf-8") if isinstance(row[2], bytes) else str(row[2]) for row in rows)
+
+    assert {"ClipboardCopied", "ClipboardMonitorError"}.issubset({row[0] for row in rows})
+    assert any(row[1] == "entry-clip" for row in rows)
+    assert "plain-password" not in text
+
+    logger.shutdown()
+    db.close()
+
+
+def test_int_4_future_events(tmp_path):
+    db = DatabaseHelper(str(tmp_path / "audit-int-4.db"))
+    key_manager = KeyManager(db)
+    assert key_manager.setup_new_vault("Str0ng!P@ssw0rd123")
+
+    bus = EventBus()
+    logger = AuditLogger(db, key_manager=key_manager, bus=bus)
+    logger.log_event("AuditImportCompleted", severity="WARN", source="audit", details={"imported": 2})
+    logger.log_event("AuditExportCreated", severity="WARN", source="audit", details={"format": "json"})
+    logger.log_event("PanicModeActivated", severity="CRITICAL", source="security", details={"reason": "manual"})
+    logger.log_event("TOTPCopied", severity="INFO", source="totp", entry_id="entry-totp", details={"entry_id": "entry-totp"})
+
+    event_types = {
+        row[0]
+        for row in db.fetchall(
+            """
+            SELECT event_type
+            FROM audit_log
+            WHERE event_type IN ('AuditImportCompleted', 'AuditExportCreated', 'PanicModeActivated', 'TOTPCopied')
+            """
+        )
+    }
+
+    assert event_types == {"AuditImportCompleted", "AuditExportCreated", "PanicModeActivated", "TOTPCopied"}
+
+    logger.shutdown()
+    db.close()
+
+
+def test_comp_1_cef_format(tmp_path):
+    db = DatabaseHelper(str(tmp_path / "audit-comp-1.db"))
+    key_manager = KeyManager(db)
+    assert key_manager.setup_new_vault("Str0ng!P@ssw0rd123")
+
+    logger = AuditLogger(db, key_manager=key_manager, bus=EventBus())
+    sequence = logger.log_event("EntryCreated", source="vault", entry_id="entry-cef", details={"title": "CEF"})
+    row = db.fetchone(
+        """
+        SELECT sequence_number, previous_hash, entry_data, entry_hash, event_type,
+               timestamp, entry_id, details, signature, public_key
+        FROM audit_log
+        WHERE sequence_number = ?
+        """,
+        (sequence,),
+    )
+    record = {
+        "sequence_number": row[0],
+        "previous_hash": row[1],
+        "entry_data": row[2],
+        "entry_hash": row[3],
+        "event_type": row[4],
+        "timestamp": row[5],
+        "entry_id": row[6],
+        "details": row[7],
+        "signature": row[8],
+        "public_key": row[9],
+    }
+    entry = json.loads(row[2].decode("utf-8") if isinstance(row[2], bytes) else row[2])
+    cef_text = AuditLogFormatter.to_cef([record])
+
+    assert entry["cef"].startswith("CEF:0|CryptoSafe|Manager|5|EntryCreated|vault|3|")
+    assert "cs1=entry-cef" in entry["cef"]
+    assert cef_text.startswith("CEF:0|CryptoSafe|Manager|5|EntryCreated|vault|3|")
+
+    logger.shutdown()
+    db.close()
+
+
+def test_comp_2_timezone(tmp_path):
+    db = DatabaseHelper(str(tmp_path / "audit-comp-2.db"))
+    key_manager = KeyManager(db)
+    assert key_manager.setup_new_vault("Str0ng!P@ssw0rd123")
+
+    logger = AuditLogger(db, key_manager=key_manager, bus=EventBus())
+    sequence = logger.log_event("LoginSucceeded", source="auth", details={})
+    entry_data = db.fetchone("SELECT entry_data FROM audit_log WHERE sequence_number = ?", (sequence,))[0]
+    entry = json.loads(entry_data.decode("utf-8") if isinstance(entry_data, bytes) else entry_data)
+    parsed = datetime.fromisoformat(entry["timestamp"])
+
+    assert parsed.tzinfo is not None
+    assert parsed.utcoffset() == timezone.utc.utcoffset(parsed)
+
+    logger.shutdown()
+    db.close()
+
+
+def test_comp_3_retention_policy(tmp_path):
+    db = DatabaseHelper(str(tmp_path / "audit-comp-3.db"))
+
+    db.set_audit_rotation_policy(max_entries=123, max_age_days=45, auto_archive=False)
+    policy = db.get_audit_rotation_policy()
+
+    assert policy == {"max_entries": 123, "max_age_days": 45, "auto_archive": False}
+
+    db.close()
+
+
+def test_comp_4_timeline(tmp_path):
+    db = DatabaseHelper(str(tmp_path / "audit-comp-4.db"))
+    key_manager = KeyManager(db)
+    assert key_manager.setup_new_vault("Str0ng!P@ssw0rd123")
+
+    logger = AuditLogger(db, key_manager=key_manager, bus=EventBus())
+    first = logger.log_event("EntryCreated", source="vault", details={"index": 1})
+    second = logger.log_event("EntryUpdated", source="vault", details={"index": 2})
+    third = logger.log_event("EntryDeleted", source="vault", details={"index": 3})
+    timeline = db.get_audit_timeline()
+
+    assert [row[0] for row in timeline[-3:]] == [first, second, third]
+    assert [row[2] for row in timeline[-3:]] == ["EntryCreated", "EntryUpdated", "EntryDeleted"]
+
+    logger.shutdown()
     db.close()

@@ -534,6 +534,23 @@ class DatabaseHelper:
             "recovered_db_path": recovered_db_path,
         }
 
+    def get_audit_timeline(self, include_archive: bool = True):
+        query = """
+            SELECT sequence_number, timestamp, COALESCE(event_type, action), entry_id, details, 'active' AS location
+            FROM audit_log
+            WHERE sequence_number IS NOT NULL
+        """
+        if include_archive:
+            query += """
+                UNION ALL
+                SELECT sequence_number, timestamp, COALESCE(event_type, action), entry_id, details, 'archive' AS location
+                FROM audit_log_archive
+                WHERE sequence_number IS NOT NULL
+            """
+        query += " ORDER BY sequence_number ASC"
+        with self.audit_read_access():
+            return self.fetchall(query)
+
     def close(self):
         if hasattr(self._local, "connection"):
             self._local.connection.close()
