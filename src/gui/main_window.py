@@ -12,6 +12,9 @@ from .setup_wizard import SetupWizard
 from .dialogs.login_dialog import LoginDialog
 from .dialogs.change_password_dialog import ChangePasswordDialog
 from .dialogs.entry_dialog import EntryDialog
+from .dialogs.export_dialog import ExportDialog
+from .dialogs.import_dialog import ImportDialog
+from .dialogs.sharing_dialog import SharingDialog
 
 from core.config import ConfigManager
 from core.state_manager import state_manager
@@ -133,7 +136,7 @@ class MainWindow(tk.Tk):
             if search_query:
                 data = self.entry_manager.search_entries(search_query)
             else:
-                data = self.entry_manager.get_all_entries(include_decrypted_password=False)
+                data = self.entry_manager.get_all_entries(include_decrypted_password=True)
 
             if filters:
                 data = self._apply_demo_filters(data, filters)
@@ -200,6 +203,10 @@ class MainWindow(tk.Tk):
             command=self.toggle_password_visibility,
         )
         self.password_toggle_btn.pack(side=tk.LEFT, padx=2)
+        ttk.Separator(toolbar, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=10)
+        ttk.Button(toolbar, text="Экспорт", command=self.show_export_dialog).pack(side=tk.LEFT, padx=2)
+        ttk.Button(toolbar, text="Импорт", command=self.show_import_dialog).pack(side=tk.LEFT, padx=2)
+        ttk.Button(toolbar, text="Поделиться", command=self.share_selected).pack(side=tk.LEFT, padx=2)
         ttk.Button(toolbar, text="Копировать логин", command=self.copy_username).pack(side=tk.LEFT, padx=2)
         ttk.Button(toolbar, text="📋 Копировать пароль", command=self.copy_password).pack(side=tk.LEFT, padx=2)
 
@@ -317,6 +324,9 @@ class MainWindow(tk.Tk):
         menubar = tk.Menu(self)
 
         file_menu = tk.Menu(menubar, tearoff=0)
+        file_menu.add_command(label="Импорт...", command=self.show_import_dialog)
+        file_menu.add_command(label="Экспорт...", command=self.show_export_dialog)
+        file_menu.add_separator()
         file_menu.add_command(label="Заблокировать", command=self.lock_application)
         file_menu.add_separator()
         file_menu.add_command(label="Выход", command=self.on_close)
@@ -446,6 +456,8 @@ class MainWindow(tk.Tk):
             self.copy_entry_field(entry, "username")
         elif action == "copy_all":
             self.copy_entry_all(entry)
+        elif action == "share":
+            self.show_sharing_dialog(entry.get("id"))
         elif action == "delete":
             if messagebox.askyesno("Подтверждение", f"Удалить '{entry.get('title')}'?"):
                 self.entry_manager.delete_entry(entry["id"], soft_delete=True)
@@ -457,6 +469,31 @@ class MainWindow(tk.Tk):
 
     def show_change_password(self):
         ChangePasswordDialog(self, self.key_manager, self.entry_manager, self.encryption_service)
+
+    def show_export_dialog(self):
+        if not self.entry_manager:
+            messagebox.showinfo("Экспорт", "Сначала разблокируйте хранилище.", parent=self)
+            return
+        ExportDialog(self, self.entry_manager, selected_entry_ids=self.table.get_selected_ids())
+
+    def show_import_dialog(self):
+        if not self.entry_manager:
+            messagebox.showinfo("Импорт", "Сначала разблокируйте хранилище.", parent=self)
+            return
+        ImportDialog(self, self.entry_manager, on_import_complete=self.load_entries)
+
+    def share_selected(self):
+        selected = self.table.get_selected_entries()
+        if not selected:
+            messagebox.showinfo("Обмен", "Выберите запись, которой нужно поделиться.", parent=self)
+            return
+        self.show_sharing_dialog(selected[0].get("id"))
+
+    def show_sharing_dialog(self, entry_id: str):
+        if not entry_id:
+            messagebox.showinfo("Обмен", "Не удалось определить выбранную запись.", parent=self)
+            return
+        SharingDialog(self, self.entry_manager, entry_id)
 
     def show_settings(self):
         SettingsDialog(self)

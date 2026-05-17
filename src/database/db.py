@@ -7,7 +7,7 @@ from contextlib import contextmanager
 
 logger = logging.getLogger("Database")
 
-DB_SCHEMA_VERSION = 5
+DB_SCHEMA_VERSION = 7
 
 
 class DatabaseHelper:
@@ -37,6 +37,9 @@ class DatabaseHelper:
 
         self._create_supporting_tables(cursor)
         self._migrate_audit_log(cursor)
+        self._migrate_import_export_history(cursor)
+        self._migrate_shared_entries(cursor)
+        self._migrate_contacts(cursor)
 
         if self._table_exists(cursor, "vault_entries"):
             if self._vault_entries_needs_migration(cursor):
@@ -151,6 +154,56 @@ class DatabaseHelper:
 
         cursor.execute(
             """
+            CREATE TABLE IF NOT EXISTS import_export_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                operation_type TEXT NOT NULL,
+                export_format TEXT NOT NULL,
+                encryption_used TEXT NOT NULL,
+                entry_count INTEGER NOT NULL DEFAULT 0,
+                file_size INTEGER NOT NULL DEFAULT 0,
+                checksum TEXT,
+                verification_status TEXT NOT NULL DEFAULT 'pending',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                details TEXT
+            )
+            """
+        )
+
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS shared_entries (
+                shared_id TEXT PRIMARY KEY,
+                original_entry_id TEXT NOT NULL,
+                encryption_method TEXT NOT NULL,
+                recipient_info TEXT,
+                permissions TEXT,
+                shared_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                expires_at TIMESTAMP
+            )
+            """
+        )
+
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS contacts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                contact_name TEXT NOT NULL,
+                identifier TEXT,
+                public_key TEXT,
+                key_fingerprint TEXT,
+                key_algorithm TEXT DEFAULT 'RSA-2048',
+                status TEXT NOT NULL DEFAULT 'active',
+                revoked_at TIMESTAMP,
+                rotated_from INTEGER,
+                verified INTEGER NOT NULL DEFAULT 0,
+                last_used_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+
+        cursor.execute(
+            """
             CREATE TABLE IF NOT EXISTS settings (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 setting_key TEXT UNIQUE NOT NULL,
@@ -199,6 +252,13 @@ class DatabaseHelper:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_archive_sequence ON audit_log_archive(sequence_number)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_security_timestamp ON audit_security_events(timestamp)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_export_schedule_next ON audit_export_schedule(next_run_at)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_import_export_created ON import_export_history(created_at)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_import_export_operation ON import_export_history(operation_type)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_shared_entries_original ON shared_entries(original_entry_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_shared_entries_expires ON shared_entries(expires_at)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_contacts_identifier ON contacts(identifier)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_contacts_fingerprint ON contacts(key_fingerprint)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_contacts_status ON contacts(status)")
 
     def _migrate_audit_log(self, cursor):
         cursor.execute("PRAGMA table_info(audit_log)")
@@ -220,6 +280,63 @@ class DatabaseHelper:
 
         if "event_type" not in columns and "action" in columns:
             cursor.execute("UPDATE audit_log SET event_type = action WHERE event_type IS NULL")
+
+    def _migrate_contacts(self, cursor):
+        cursor.execute("PRAGMA table_info(contacts)")
+        columns = {row[1] for row in cursor.fetchall()}
+        if not columns:
+            return
+
+        additions = {
+            "key_algorithm": "TEXT DEFAULT 'RSA-2048'",
+            "status": "TEXT NOT NULL DEFAULT 'active'",
+            "revoked_at": "TIMESTAMP",
+            "rotated_from": "INTEGER",
+            "verified": "INTEGER NOT NULL DEFAULT 0",
+        }
+        for column, definition in additions.items():
+            if column not in columns:
+                cursor.execute(f"ALTER TABLE contacts ADD COLUMN {column} {definition}")
+
+    def _migrate_import_export_history(self, cursor):
+        cursor.execute("PRAGMA table_info(import_export_history)")
+        columns = {row[1] for row in cursor.fetchall()}
+        if not columns:
+            return
+
+        additions = {
+            "operation_type": "TEXT NOT NULL DEFAULT 'export'",
+            "export_format": "TEXT NOT NULL DEFAULT 'unknown'",
+            "encryption_used": "TEXT NOT NULL DEFAULT 'unknown'",
+            "entry_count": "INTEGER NOT NULL DEFAULT 0",
+            "file_size": "INTEGER NOT NULL DEFAULT 0",
+            "checksum": "TEXT",
+            "verification_status": "TEXT NOT NULL DEFAULT 'pending'",
+            "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "details": "TEXT",
+        }
+        for column, definition in additions.items():
+            if column not in columns:
+                cursor.execute(f"ALTER TABLE import_export_history ADD COLUMN {column} {definition}")
+
+    def _migrate_shared_entries(self, cursor):
+        cursor.execute("PRAGMA table_info(shared_entries)")
+        columns = {row[1] for row in cursor.fetchall()}
+        if not columns:
+            return
+
+        additions = {
+            "shared_id": "TEXT",
+            "original_entry_id": "TEXT NOT NULL DEFAULT ''",
+            "encryption_method": "TEXT NOT NULL DEFAULT 'unknown'",
+            "recipient_info": "TEXT",
+            "permissions": "TEXT",
+            "shared_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "expires_at": "TIMESTAMP",
+        }
+        for column, definition in additions.items():
+            if column not in columns:
+                cursor.execute(f"ALTER TABLE shared_entries ADD COLUMN {column} {definition}")
 
     @staticmethod
     def _table_exists(cursor, table_name: str) -> bool:

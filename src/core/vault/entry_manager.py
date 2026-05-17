@@ -206,6 +206,7 @@ class EntryManager:
                         "url": data.get("url", ""),
                         "notes": data.get("notes", ""),
                         "category": data.get("category", ""),
+                        "tags": data.get("tags", self._parse_tags(tags)),
                         "never_copy_to_clipboard": data.get("never_copy_to_clipboard", False),
                         "clipboard_policy": data.get("clipboard_policy", {}),
                     })
@@ -648,6 +649,18 @@ class EntryManager:
                 return True
 
         return False
+
+    @staticmethod
+    def _parse_tags(value) -> List[str]:
+        if isinstance(value, list):
+            return value
+        if not value:
+            return []
+        try:
+            parsed = json.loads(value)
+        except Exception:
+            return []
+        return parsed if isinstance(parsed, list) else []
 
     @staticmethod
     def _parse_iso_datetime(value: Optional[str]) -> Optional[datetime]:

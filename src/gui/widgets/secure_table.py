@@ -46,6 +46,8 @@ class SecureTable(ttk.Treeview):
         self.context_menu.add_command(label="Копировать пароль", command=self._on_copy_password)
         self.context_menu.add_command(label="Копировать всё", command=self._on_copy_all)
         self.context_menu.add_separator()
+        self.context_menu.add_command(label="Поделиться", command=self._on_share)
+        self.context_menu.add_separator()
         self.context_menu.add_command(label="Удалить", command=self._on_delete)
         self.context_menu.add_command(label="Удалить навсегда", command=self._on_permanent_delete)
 
@@ -237,6 +239,11 @@ class SecureTable(ttk.Treeview):
         selected = self.get_selected_entries()
         if selected and self._on_context_action_callback:
             self._on_context_action_callback("copy_all", selected[0])
+
+    def _on_share(self):
+        selected = self.get_selected_entries()
+        if selected and self._on_context_action_callback:
+            self._on_context_action_callback("share", selected[0])
 
     def _on_delete(self):
         selected = self.get_selected_entries()

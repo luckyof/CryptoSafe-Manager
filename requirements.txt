@@ -2,6 +2,7 @@
 argon2-cffi>=21.3.0
 cryptography>=38.0.0
 pyperclip>=1.8.2
+qrcode>=7.4.2
 pywin32>=306; sys_platform == "win32"
 pyobjc-framework-Cocoa>=9.0; sys_platform == "darwin"
 
@@ -10,3 +11,8 @@ pytest>=7.0.0
 
 # Optional: OS keychain integration
 # keyring>=23.0.0
+
+# Optional: QR image/camera scanning
+# Pillow>=10.0.0
+# pyzbar>=0.1.9
+# opencv-python>=4.8.0

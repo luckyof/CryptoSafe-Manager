@@ -23,11 +23,6 @@ AUDIT_SIGNING_CONTEXT = "audit-signing"
 
 
 class AuditLogSigner:
-    """Purpose-separated audit log signer.
-
-    Ed25519 is used when the active KeyManager can derive key material. HMAC-SHA256
-    remains as a deterministic fallback for constrained test doubles.
-    """
 
     def __init__(self, key_manager=None, signing_key: Optional[bytes] = None):
         self.key_manager = key_manager
