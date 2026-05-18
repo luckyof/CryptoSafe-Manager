@@ -15,7 +15,7 @@ CryptoSafe Manager призван предоставить пользовате�
 | 3      | Реальное шифрование           | Замена XOR на AES-256-GCM, CRUD записей, генератор паролей, поиск и фильтры.    |
 | 4      | Буфер обмена и таймеры        | Безопасная работа с буфером обмена, автоматическая очистка, таймеры неактивности. |
 | 5      | Журнал аудита и целостность   | Полноценный аудит действий, цифровая подпись записей аудита.                    |
-| 6      | Теги и поиск                  | Категоризация записей, полнотекстовый поиск, фильтры.                           |
+| 6      | Импорт/экспорт и безопасный обмен | Encrypted JSON/CSV/Bitwarden/LastPass, импорт с валидацией, secure sharing, key exchange и QR. |
 | 7      | Многопользовательность и блокировка | Поддержка нескольких профилей, автоматическая блокировка при простое.          |
 | 8      | Резервное копирование и экспорт| Создание резервных копий, экспорт/импорт данных, финальная сборка.              |
 
@@ -68,6 +68,7 @@ CryptoSafe Manager призван предоставить пользовате�
    - `cryptography`
    - `pytest`
    - `pyperclip`
+   - `qrcode`
    - `pywin32` на Windows
    - `pyobjc-framework-Cocoa` на macOS
 
@@ -111,6 +112,12 @@ pytest tests/test_sprint4_resilience.py
 
 ```bash
 pytest tests/test_sprint5_audit.py
+```
+
+Для запуска только тестов Sprint 6:
+
+```bash
+pytest tests/test_sprint6_database.py tests/test_sprint6_export.py tests/test_sprint6_import.py tests/test_sprint6_sharing.py tests/test_sprint6_key_exchange.py tests/test_sprint6_formats.py tests/test_sprint6_security.py tests/test_sprint6_integration.py tests/test_sprint6_performance.py tests/test_sprint6_error_recovery.py tests/test_sprint6_validation.py
 ```
 
 ## Использование (1 спринт)
@@ -208,10 +215,32 @@ pytest tests/test_sprint5_audit.py
 pytest tests/test_sprint4_validation.py tests/test_sprint5_audit.py
 ```
 
+## Состояние после Sprint 6
+
+К состоянию шестого спринта проект дополнен подсистемой импорта, экспорта и безопасного обмена записями. Основной код расположен в `src/core/import_export/`: экспортёр, импортёр, сервис sharing, key exchange, QR-интеграция и спецификации форматов.
+
+Основные возможности Sprint 6:
+
+- экспорт поддерживает native encrypted JSON, CSV, Bitwarden/LastPass JSON и менеджерский JSON с выбором записей, исключением полей и подтверждением мастер-паролем;
+- данные экспорта шифруются AES-GCM с PBKDF2-derived ключами, поддерживаются GZIP-сжатие, RSA-получатели и безопасные параметры формата;
+- импорт поддерживает dry-run, merge/replace режимы, обработку дубликатов, rollback/checkpoint recovery, отчёты об ошибках и ограничения размера;
+- CSV/JSON импорт проходит нормализацию, sanitization и проверку на опасные шаблоны до записи в хранилище;
+- безопасный обмен работает через пароль, RSA и ECC/ECIES P-256 с ephemeral ключами, TTL, правами доступа и защитой от tampering;
+- key exchange поддерживает RSA/ECC пары, доверенные контакты, verify/revoke/rotate workflow, QR payload, chunking, checksum, TTL и replay protection;
+- GUI дополнен диалогами импорта, экспорта, sharing и QR/key exchange, а главное окно получило соответствующие действия меню и toolbar;
+- схема БД расширена до версии 7 таблицами `shared_entries`, `import_export_history` и `contacts`;
+- добавлен набор `tests/test_sprint6_*.py` для проверки архитектуры, форматов, безопасности, интеграции, производительности и восстановления после ошибок.
+
+Для проверки Sprint 6:
+
+```bash
+pytest tests/test_sprint6_database.py tests/test_sprint6_export.py tests/test_sprint6_import.py tests/test_sprint6_sharing.py tests/test_sprint6_key_exchange.py tests/test_sprint6_formats.py tests/test_sprint6_security.py tests/test_sprint6_integration.py tests/test_sprint6_performance.py tests/test_sprint6_error_recovery.py tests/test_sprint6_validation.py
+```
+
 ## Лицензия
 
 Проект распространяется под лицензией MIT. Подробности в файле LICENSE.
 
 ---
 
-**Примечание:** Данный `README.md` соответствует состоянию проекта после завершения **Спринта 5**. В последующих спринтах он будет дополняться информацией о новых возможностях и изменениях.
+**Примечание:** Данный `README.md` соответствует состоянию проекта после завершения **Спринта 6**. В последующих спринтах он будет дополняться информацией о новых возможностях и изменениях.

@@ -6,6 +6,8 @@ import inspect
 import time
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -601,6 +603,47 @@ def test_test_1_integrity(tmp_path):
 
     assert result["verified"] is False
     assert {"sequence": 500, "reason": "hash mismatch"} in result["invalid_entries"]
+
+    db.close()
+
+
+def test_test_1_chain_delete_detected(tmp_path):
+    db = DatabaseHelper(str(tmp_path / "audit-test-1-chain.db"))
+    key_manager = KeyManager(db)
+    assert key_manager.setup_new_vault("Str0ng!P@ssw0rd123")
+
+    signer = AuditLogSigner(key_manager=key_manager)
+    logger = AuditLogger(db, signer=signer, bus=EventBus())
+    first = logger.log_event("EntryCreated", source="vault", details={"index": 1})
+    middle = logger.log_event("EntryUpdated", source="vault", details={"index": 2})
+    logger.log_event("EntryDeleted", source="vault", details={"index": 3})
+
+    db.unsafe_audit_execute("DELETE FROM audit_log WHERE sequence_number = ?", (middle,))
+    result = AuditLogVerifier(db, signer, bus=EventBus()).verify_integrity()
+
+    assert result["verified"] is False
+    assert result["chain_breaks"]
+    assert result["chain_breaks"][0]["sequence"] == first + 2
+
+    db.close()
+
+
+def test_test_5_audit_log_is_append_only(tmp_path):
+    db = DatabaseHelper(str(tmp_path / "audit-test-5-append-only.db"))
+    key_manager = KeyManager(db)
+    assert key_manager.setup_new_vault("Str0ng!P@ssw0rd123")
+
+    logger = AuditLogger(db, key_manager=key_manager, bus=EventBus())
+    sequence = logger.log_event("EntryCreated", source="vault", details={"title": "Immutable"})
+
+    with pytest.raises(PermissionError, match="append-only"):
+        db.execute("UPDATE audit_log SET event_type = ? WHERE sequence_number = ?", ("Tampered", sequence))
+
+    with pytest.raises(PermissionError, match="append-only"):
+        db.execute("DELETE FROM audit_log WHERE sequence_number = ?", (sequence,))
+
+    result = AuditLogVerifier(db, logger.signer, bus=EventBus()).verify_integrity()
+    assert result["verified"] is True
 
     db.close()
 

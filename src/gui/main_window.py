@@ -136,7 +136,7 @@ class MainWindow(tk.Tk):
             if search_query:
                 data = self.entry_manager.search_entries(search_query)
             else:
-                data = self.entry_manager.get_all_entries(include_decrypted_password=True)
+                data = self.entry_manager.get_all_entries(include_decrypted_password=False)
 
             if filters:
                 data = self._apply_demo_filters(data, filters)

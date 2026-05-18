@@ -195,35 +195,31 @@ class EntryManager:
                 "tags": tags,
             }
 
-            if include_decrypted_password:
-                try:
-                    plaintext = self.encryption_service.decrypt(encrypted_blob)
-                    data = json.loads(plaintext.decode('utf-8'))
-                    entry_meta.update({
-                        "title": data.get("title", ""),
-                        "username": data.get("username", ""),
-                        "password": data.get("password", ""),
-                        "url": data.get("url", ""),
-                        "notes": data.get("notes", ""),
-                        "category": data.get("category", ""),
-                        "tags": data.get("tags", self._parse_tags(tags)),
-                        "never_copy_to_clipboard": data.get("never_copy_to_clipboard", False),
-                        "clipboard_policy": data.get("clipboard_policy", {}),
-                    })
-                except Exception as e:
-                    logger.error(f"Failed to decrypt entry {entry_id}: {e}")
-                    entry_meta.update({
-                        "title": "[Ошибка расшифровки]",
-                        "username": "",
-                        "password": "",
-                        "url": "",
-                        "notes": "",
-                        "category": "",
-                    })
-            else:
-                # Без расшифровки — получаем title из encrypted data (для отображения)
+            try:
+                plaintext = self.encryption_service.decrypt(encrypted_blob)
+                plaintext_json = plaintext.decode("utf-8")
+                data = json.loads(plaintext_json)
+                password = data.get("password", "")
                 entry_meta.update({
-                    "title": "[Зашифровано]",
+                    "title": data.get("title", ""),
+                    "username": data.get("username", ""),
+                    "password": password if include_decrypted_password else "",
+                    "url": data.get("url", ""),
+                    "notes": data.get("notes", ""),
+                    "category": data.get("category", ""),
+                    "tags": data.get("tags", self._parse_tags(tags)),
+                    "never_copy_to_clipboard": data.get("never_copy_to_clipboard", False),
+                    "clipboard_policy": data.get("clipboard_policy", {}),
+                })
+                if not include_decrypted_password:
+                    data["password"] = ""
+                    self._zero_compact_ascii_string(password)
+                    self._zero_compact_ascii_string(plaintext_json)
+                    self._zero_immutable_bytes(plaintext)
+            except Exception as e:
+                logger.error(f"Failed to decrypt entry {entry_id}: {e}")
+                entry_meta.update({
+                    "title": "[Ошибка расшифровки]",
                     "username": "",
                     "password": "",
                     "url": "",
