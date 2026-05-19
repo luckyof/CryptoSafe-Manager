@@ -1,6 +1,7 @@
 import base64
 import json
 import os
+import random
 import sys
 import inspect
 import time
@@ -655,16 +656,51 @@ def test_test_2_performance(tmp_path):
 
     signer = AuditLogSigner(key_manager=key_manager)
     logger = AuditLogger(db, signer=signer, bus=EventBus())
+
+    rng = random.Random(20260519)
+    event_types = ["EntryCreated", "EntryUpdated", "EntryDeleted", "UserLoginSuccess", "ClipboardCopied"]
+    sources = ["vault", "auth", "clipboard", "settings", "security"]
+    severities = ["INFO", "INFO", "INFO", "WARN", "ERROR"]
+    payloads = [
+        {
+            "event_type": rng.choice(event_types),
+            "severity": rng.choice(severities),
+            "source": rng.choice(sources),
+            "details": {
+                "index": index,
+                "entry_id": f"entry-{rng.randrange(1, 500)}",
+                "operation_id": f"op-{rng.getrandbits(48):012x}",
+                "payload_size": rng.randrange(8, 256),
+                "flagged": rng.random() < 0.05,
+            },
+        }
+        for index in range(10000)
+    ]
+
     start = time.perf_counter()
-    for index in range(10000):
-        logger.log_event("EntryCreated", source="vault", details={"index": index})
+    for payload in payloads:
+        logger.log_event(
+            payload["event_type"],
+            severity=payload["severity"],
+            source=payload["source"],
+            details=payload["details"],
+        )
     logging_time = time.perf_counter() - start
+    avg_logging_ms = logging_time / len(payloads) * 1000
 
     start = time.perf_counter()
     result = AuditLogVerifier(db, signer, bus=EventBus()).verify_periodic(sample_size=1000)
     verification_time = time.perf_counter() - start
 
-    assert logging_time / 10000 < 0.010
+    print(
+        "\nSprint 5 TEST-2 performance: "
+        f"events={len(payloads)}, "
+        f"logging_total={logging_time:.3f}s, "
+        f"logging_avg={avg_logging_ms:.3f}ms, "
+        f"verify_1000={verification_time:.3f}s"
+    )
+
+    assert logging_time / len(payloads) < 0.010
     assert verification_time < 1.0
     assert result["verified"] is True
     assert result["total_entries"] == 1000
