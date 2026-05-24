@@ -1,4 +1,6 @@
 import json
+import csv
+import io
 from datetime import datetime, timezone
 from typing import Dict, Iterable, List, Optional
 
@@ -50,3 +52,22 @@ class PasswordManagerFormatHandler:
                 }
             )
         return json.dumps(rows, ensure_ascii=False, sort_keys=True, indent=2).encode("utf-8")
+
+    def serialize_lastpass_csv(self, entries: Iterable[Dict], include_fields: Optional[List[str]] = None) -> bytes:
+        selected = set(include_fields or [])
+        output = io.StringIO(newline="")
+        fieldnames = ["url", "username", "password", "extra", "name", "grouping"]
+        writer = csv.DictWriter(output, fieldnames=fieldnames)
+        writer.writeheader()
+        for entry in entries:
+            writer.writerow(
+                {
+                    "url": entry.get("url", "") if (not selected or "url" in selected) else "",
+                    "username": entry.get("username", "") if (not selected or "username" in selected) else "",
+                    "password": entry.get("password", "") if (not selected or "password" in selected) else "",
+                    "extra": entry.get("notes", "") if (not selected or "notes" in selected) else "",
+                    "name": entry.get("title", ""),
+                    "grouping": entry.get("category", ""),
+                }
+            )
+        return output.getvalue().encode("utf-8-sig")

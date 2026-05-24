@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
@@ -128,7 +128,20 @@ class VaultImporter:
 
             imported, updated, skipped = 0, 0, len(preview.rejected)
             if options.mode != "dry-run":
-                imported, updated, skipped_entries = self._commit_entries(preview.entries, options, duplicates, checksum)
+                if options.mode == "replace" and self.db:
+                    self.db.begin_transaction()
+                    try:
+                        imported, updated, skipped_entries = self._commit_entries(
+                            preview.entries, options, duplicates, checksum
+                        )
+                        self.db.commit_transaction()
+                    except Exception:
+                        self.db.rollback_transaction()
+                        raise
+                else:
+                    imported, updated, skipped_entries = self._commit_entries(
+                        preview.entries, options, duplicates, checksum
+                    )
                 skipped += skipped_entries
 
             result = ImportResult(
@@ -193,6 +206,8 @@ class VaultImporter:
         lower_name = (filename or "").lower()
         if sample.startswith(b"{") and b"cryptosafe_export" in sample:
             return "encrypted_json"
+        if sample.startswith(b"{") and b"cryptosafe_share" in sample:
+            return "shared_entry"
         if sample.startswith(b"{") or sample.startswith(b"["):
             try:
                 parsed = json.loads(sample.decode("utf-8-sig", errors="ignore"))
@@ -251,8 +266,11 @@ class VaultImporter:
         encrypted_key = package.get("encrypted_key")
         if encrypted_key:
             encrypted_payload["encrypted_key"] = encrypted_key
+        if package.get("ephemeral_public_key"):
+            encrypted_payload["ephemeral_public_key"] = package["ephemeral_public_key"]
 
-        if encrypted_key:
+        public_key_encrypted = bool(encrypted_key or package.get("ephemeral_public_key"))
+        if public_key_encrypted:
             data_key = self._decrypt_export_data_key(package, options)
             try:
                 signing_key = VaultExporter._derive_signing_key(data_key)
@@ -280,6 +298,8 @@ class VaultImporter:
         source_format = package.get("metadata", {}).get("format", "encrypted_json")
         if source_format == "csv":
             return self._parse_csv(plaintext, lastpass=False)
+        if source_format == "lastpass_csv":
+            return self._parse_csv(plaintext, lastpass=True)
         if source_format == "lastpass_json":
             return self._parse_plain_json(plaintext)
         if source_format in {"bitwarden_json", "password_manager_json"}:
@@ -318,6 +338,21 @@ class VaultImporter:
         if not options.private_key_pem:
             raise ImportValidationError("Public-key encrypted import requires private_key_pem.")
         private_key = serialization.load_pem_private_key(options.private_key_pem, password=None)
+        algorithm = package["encryption"].get("algorithm")
+        if algorithm == "ECIES-P-256/AES-256-GCM":
+            if not isinstance(private_key, ec.EllipticCurvePrivateKey):
+                raise ImportValidationError("ECC export requires an elliptic curve private key.")
+            ephemeral_public_pem = self._safe_b64decode(package.get("ephemeral_public_key"), "ephemeral_public_key")
+            ephemeral_public_key = serialization.load_pem_public_key(ephemeral_public_pem)
+            if not isinstance(ephemeral_public_key, ec.EllipticCurvePublicKey):
+                raise ImportValidationError("Invalid export ephemeral public key.")
+            if ephemeral_public_key.curve.name != "secp256r1":
+                raise ImportValidationError("Invalid export ephemeral public key curve.")
+            shared_secret = private_key.exchange(ec.ECDH(), ephemeral_public_key)
+            return VaultExporter._derive_ecdh_data_key(shared_secret)
+
+        if not isinstance(private_key, rsa.RSAPrivateKey):
+            raise ImportValidationError("RSA export requires an RSA private key.")
         encrypted_key = self._safe_b64decode(package.get("encrypted_key"), "encrypted_key")
         return private_key.decrypt(
             encrypted_key,

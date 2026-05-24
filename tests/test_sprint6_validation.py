@@ -68,7 +68,7 @@ def test_test_1_roundtrip_all(tmp_path):
     _seed_entries(source_entries)
     expected = _entry_map(source_entries)
 
-    formats = ["encrypted_json", "csv", "bitwarden_json", "lastpass_json", "password_manager_json"]
+    formats = ["encrypted_json", "csv", "bitwarden_json", "lastpass_csv", "lastpass_json", "password_manager_json"]
     try:
         for export_format in formats:
             target_db, target_entries = _create_vault(tmp_path, f"roundtrip-{export_format}")
@@ -131,21 +131,22 @@ def test_test_2_interop(tmp_path):
         )
         lastpass_export = VaultExporter(entry_manager).export(
             ExportOptions(
-                format="lastpass_json",
+                format="lastpass_csv",
                 encrypt=False,
                 allow_plaintext=True,
                 master_password_confirmed=True,
             )
         )
         bw_payload = json.loads(bitwarden_export.content.decode("utf-8"))
-        lp_payload = json.loads(lastpass_export.content.decode("utf-8"))
+        lp_payload = lastpass_export.content.decode("utf-8-sig")
 
         assert {entry["title"] for entry in entry_manager.get_all_entries(include_decrypted_password=True)} == {
             "Bitwarden Login",
             "LastPass Login",
         }
         assert bw_payload["items"][0]["login"]["password"]
-        assert {"name", "username", "password", "url", "extra", "grouping"} <= set(lp_payload[0])
+        assert lp_payload.splitlines()[0] == "url,username,password,extra,name,grouping"
+        assert "lp-secret" in lp_payload
     finally:
         db.close()
 

@@ -1,7 +1,7 @@
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 
-from core.import_export import ImportOptions, VaultImporter
+from core.import_export import ImportOptions, SharingService, VaultImporter
 
 
 class ImportDialog(tk.Toplevel):
@@ -44,7 +44,7 @@ class ImportDialog(tk.Toplevel):
         ttk.Combobox(
             settings,
             textvariable=self.format_var,
-            values=["", "encrypted_json", "csv", "bitwarden_json", "lastpass_csv", "json"],
+            values=["", "encrypted_json", "csv", "bitwarden_json", "lastpass_csv", "json", "shared_entry"],
             state="readonly",
             width=22,
         ).grid(row=0, column=1, sticky=tk.W, pady=3)
@@ -110,6 +110,16 @@ class ImportDialog(tk.Toplevel):
             private_key_pem=self._private_key_bytes(),
         )
 
+    def _show_shared_result(self, result, saved: bool):
+        self.preview_tree.delete(*self.preview_tree.get_children())
+        entry = result.entry or {}
+        self.preview_tree.insert("", tk.END, values=(entry.get("title", ""), entry.get("username", ""), entry.get("url", "")))
+        state = "saved" if saved else "preview"
+        self.summary_var.set(
+            f"Format: shared_entry; mode: {state}; share_id: {result.shared_id}; "
+            f"read: {bool(result.permissions.get('read', True))}; edit: {bool(result.permissions.get('edit', False))}"
+        )
+
     def _require_content(self):
         if self.file_content is None:
             messagebox.showerror("Импорт", "Выберите файл для импорта.", parent=self)
@@ -120,6 +130,15 @@ class ImportDialog(tk.Toplevel):
         if not self._require_content():
             return
         try:
+            if self.format_var.get() == "shared_entry":
+                result = SharingService(self.entry_manager).import_shared_entry(
+                    self.file_content,
+                    password=self.password_var.get() or None,
+                    private_key_pem=self._private_key_bytes(),
+                    save_to_vault=False,
+                )
+                self._show_shared_result(result, saved=False)
+                return
             result = VaultImporter(self.entry_manager).import_from_bytes(self.file_content, self._build_import_options(mode="dry-run"), self.path_var.get())
             self._show_result(result)
         except Exception as exc:
@@ -129,6 +148,18 @@ class ImportDialog(tk.Toplevel):
         if not self._require_content():
             return
         try:
+            if self.format_var.get() == "shared_entry":
+                result = SharingService(self.entry_manager).import_shared_entry(
+                    self.file_content,
+                    password=self.password_var.get() or None,
+                    private_key_pem=self._private_key_bytes(),
+                    save_to_vault=True,
+                )
+                self._show_shared_result(result, saved=True)
+                if self.on_import_complete:
+                    self.on_import_complete()
+                messagebox.showinfo("РРјРїРѕСЂС‚", f"Shared entry saved: {result.saved_entry_id}", parent=self)
+                return
             result = VaultImporter(self.entry_manager).import_from_bytes(self.file_content, self._build_import_options(), self.path_var.get())
             self._show_result(result)
             if self.on_import_complete:

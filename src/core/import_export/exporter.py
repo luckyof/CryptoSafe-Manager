@@ -4,13 +4,14 @@ import hashlib
 import hmac
 import json
 import os
+import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
@@ -28,6 +29,7 @@ SUPPORTED_FORMATS = {
     "encrypted_json",
     "csv",
     "bitwarden_json",
+    "lastpass_csv",
     "lastpass_json",
     "password_manager_json",
 }
@@ -118,7 +120,24 @@ class VaultExporter:
         result = self.export(options)
         target = Path(path)
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(result.content)
+        temp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="wb",
+                delete=False,
+                dir=str(target.parent),
+                prefix=f".{target.name}.",
+                suffix=".tmp",
+            ) as temp_file:
+                temp_file.write(result.content)
+                temp_file.flush()
+                os.fsync(temp_file.fileno())
+                temp_path = Path(temp_file.name)
+            os.replace(temp_path, target)
+            temp_path = None
+        finally:
+            if temp_path and temp_path.exists():
+                self._wipe_file_best_effort(temp_path)
         result.metadata["file_path"] = str(target)
         self._update_history_file_size(result, target.stat().st_size)
         return result
@@ -181,6 +200,8 @@ class VaultExporter:
             return self.csv_handler.serialize(entries, self._format_fields(options))
         if options.format in {"bitwarden_json", "password_manager_json"}:
             return self.password_manager_handler.serialize_bitwarden(entries, self._format_fields(options))
+        if options.format == "lastpass_csv":
+            return self.password_manager_handler.serialize_lastpass_csv(entries, self._format_fields(options))
         if options.format == "lastpass_json":
             return self.password_manager_handler.serialize_lastpass_json(entries, self._format_fields(options))
 
@@ -260,11 +281,18 @@ class VaultExporter:
 
     def _encrypt_with_public_key(self, payload_bytes: bytes, options: ExportOptions):
         key_len = options.encryption_strength // 8
+        public_key = serialization.load_pem_public_key(options.recipient_public_key)
+        if isinstance(public_key, ec.EllipticCurvePublicKey):
+            if options.encryption_strength != 256:
+                raise ValueError("ECC public-key export requires AES-256-GCM.")
+            return self._encrypt_with_ecies(payload_bytes, public_key)
+        if not isinstance(public_key, rsa.RSAPublicKey):
+            raise ValueError("Unsupported recipient public key type.")
+
         data_key = os.urandom(key_len)
         nonce = os.urandom(12)
         ciphertext = AESGCM(data_key).encrypt(nonce, payload_bytes, EXPORT_AAD)
 
-        public_key = serialization.load_pem_public_key(options.recipient_public_key)
         encrypted_key = public_key.encrypt(
             data_key,
             padding.OAEP(
@@ -288,6 +316,44 @@ class VaultExporter:
         signing_key = self._derive_signing_key(data_key)
         self._clear_bytearray(data_key)
         return encrypted_payload, signing_key
+
+    def _encrypt_with_ecies(self, payload_bytes: bytes, recipient_public_key):
+        if recipient_public_key.curve.name != "secp256r1":
+            raise ValueError("ECC public-key export requires a P-256 recipient key.")
+        ephemeral_private_key = ec.generate_private_key(ec.SECP256R1())
+        shared_secret = ephemeral_private_key.exchange(ec.ECDH(), recipient_public_key)
+        data_key = self._derive_ecdh_data_key(shared_secret)
+        nonce = os.urandom(12)
+        ciphertext = AESGCM(data_key).encrypt(nonce, payload_bytes, EXPORT_AAD)
+        ephemeral_public_pem = ephemeral_private_key.public_key().public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+
+        encrypted_payload = {
+            "encryption": {
+                "algorithm": "ECIES-P-256/AES-256-GCM",
+                "key_derivation": "ECDH-HKDF-SHA256",
+                "nonce": base64.b64encode(nonce).decode("ascii"),
+                "aad": base64.b64encode(EXPORT_AAD).decode("ascii"),
+                "forward_secrecy": "ephemeral ECDH key per export",
+                "key_separation": "ephemeral ECDH export data key; master vault key is not reused",
+            },
+            "ephemeral_public_key": base64.b64encode(ephemeral_public_pem).decode("ascii"),
+            "data": base64.b64encode(ciphertext).decode("ascii"),
+        }
+        signing_key = self._derive_signing_key(data_key)
+        self._clear_bytearray(data_key)
+        return encrypted_payload, signing_key
+
+    @staticmethod
+    def _derive_ecdh_data_key(shared_secret: bytes) -> bytes:
+        return HKDF(
+            algorithm=hashes.SHA256(),
+            length=32,
+            salt=b"cryptosafe-manager:sprint6:ecies-export",
+            info=b"ecies-p256-export-data-key",
+        ).derive(shared_secret)
 
     @staticmethod
     def _derive_signing_key(encryption_key: bytes) -> bytes:
@@ -389,3 +455,15 @@ class VaultExporter:
             return True
         except Exception:
             return False
+
+    @staticmethod
+    def _wipe_file_best_effort(path: Path):
+        try:
+            size = path.stat().st_size
+            with path.open("r+b") as handle:
+                handle.write(b"\x00" * size)
+                handle.flush()
+                os.fsync(handle.fileno())
+            path.unlink()
+        except OSError:
+            pass

@@ -229,6 +229,7 @@ class MainWindow(tk.Tk):
         self.bind_all("<Control-Shift-P>", lambda e: self.toggle_password_visibility())
 
         self.table.set_context_callback(self._on_table_action)
+        self.table.set_password_reveal_callback(self._load_password_for_table)
 
     def setup_clipboard_ui(self):
         self.clipboard_service.add_observer(lambda status: self.after(0, self._on_clipboard_status, status))
@@ -418,6 +419,17 @@ class MainWindow(tk.Tk):
         except Exception as e:
             logger.error(f"Clipboard copy error: {e}")
             messagebox.showerror("Буфер обмена", f"Не удалось скопировать данные:\n{e}", parent=self)
+
+    def _load_password_for_table(self, entry_id: str) -> str:
+        if not self.entry_manager or not entry_id:
+            return ""
+        try:
+            entry = self.entry_manager.get_entry(entry_id)
+            return entry.get("password", "") if entry else ""
+        except Exception as e:
+            logger.error(f"Password reveal error for {entry_id}: {e}")
+            messagebox.showerror("Пароль", f"Не удалось показать пароль:\n{e}", parent=self)
+            return ""
 
     def copy_entry_all(self, entry: dict):
         entry_id = entry.get("id")

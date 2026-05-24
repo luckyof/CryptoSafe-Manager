@@ -10,7 +10,7 @@ from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
 
-from core.import_export import ExportOptions, VaultExporter
+from core.import_export import ExportOptions, ImportOptions, KeyExchangeService, VaultExporter, VaultImporter
 from core.import_export.exporter import DEFAULT_PBKDF2_ITERATIONS, EXPORT_AAD
 from core.key_manager import KeyManager
 from core.vault.entry_manager import EntryManager
@@ -161,3 +161,33 @@ def test_exp_4_master_confirm(sprint6_vault):
         )
     )
     assert result.encrypted is True
+
+
+def test_exp_2_ecc_public_key_roundtrip(sprint6_vault, tmp_path):
+    _, source_entries, _, _ = sprint6_vault
+    target_db = DatabaseHelper(str(tmp_path / "ecc-target.db"))
+    target_key_manager = KeyManager(target_db)
+    assert target_key_manager.setup_new_vault("Str0ng!P@ssw0rd123")
+    target_entries = EntryManager(target_db, target_key_manager)
+    keys = KeyExchangeService().generate_ecc_key_pair()
+
+    try:
+        exported = VaultExporter(source_entries).export(
+            ExportOptions(
+                format="encrypted_json",
+                recipient_public_key=keys.public_key_pem,
+                master_password_confirmed=True,
+            )
+        )
+        package = json.loads(exported.content.decode("utf-8"))
+        result = VaultImporter(target_entries).import_from_bytes(
+            exported.content,
+            ImportOptions(mode="merge", private_key_pem=keys.private_key_pem),
+        )
+
+        assert package["encryption"]["algorithm"] == "ECIES-P-256/AES-256-GCM"
+        assert "ephemeral_public_key" in package
+        assert "encrypted_key" not in package
+        assert result.imported_count == 2
+    finally:
+        target_db.close()

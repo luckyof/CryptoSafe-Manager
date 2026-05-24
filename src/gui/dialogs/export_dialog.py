@@ -48,7 +48,7 @@ class ExportDialog(tk.Toplevel):
         format_box = ttk.Combobox(
             top,
             textvariable=self.format_var,
-            values=["encrypted_json", "csv", "bitwarden_json", "lastpass_json"],
+            values=["encrypted_json", "csv", "bitwarden_json", "lastpass_csv", "lastpass_json"],
             state="readonly",
             width=24,
         )

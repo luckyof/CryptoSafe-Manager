@@ -69,7 +69,7 @@ class QRCodeDialog(tk.Toplevel):
             self.canvas.create_text(140, 140, text="Отрисовка QR недоступна", fill="#555")
             return
 
-        qr = qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_M, border=2)
+        qr = qrcode.QRCode(version=1, error_correction=qrcode.constants.ERROR_CORRECT_M, border=2)
         qr.add_data(encoded_text)
         qr.make(fit=True)
         matrix = qr.get_matrix()

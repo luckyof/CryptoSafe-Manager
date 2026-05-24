@@ -18,6 +18,7 @@ class SecureTable(ttk.Treeview):
         self._entries_data: Dict[str, Dict[str, Any]] = {}
         self._on_entry_selected_callback = None
         self._on_context_action_callback = None
+        self._password_reveal_callback = None
 
         self.heading("title", text="Название", command=lambda: self._sort_by_column("title"))
         self.heading("username", text="Логин", command=lambda: self._sort_by_column("username"))
@@ -111,7 +112,9 @@ class SecureTable(ttk.Treeview):
 
         hidden_exists = any(entry_id not in self._visible_password_ids for entry_id in selected_ids)
         if hidden_exists:
-            self._visible_password_ids.update(selected_ids)
+            for entry_id in selected_ids:
+                if entry_id not in self._visible_password_ids and self._ensure_password_loaded(entry_id):
+                    self._visible_password_ids.add(entry_id)
         else:
             for entry_id in selected_ids:
                 self._visible_password_ids.discard(entry_id)
@@ -132,6 +135,10 @@ class SecureTable(ttk.Treeview):
     def set_context_callback(self, callback: Callable):
         """Set context action callback."""
         self._on_context_action_callback = callback
+
+    def set_password_reveal_callback(self, callback: Callable):
+        """Set callback used to lazily load a decrypted password for display."""
+        self._password_reveal_callback = callback
 
     def _mask_username(self, username: str) -> str:
         if not username:
@@ -159,6 +166,21 @@ class SecureTable(ttk.Treeview):
             self.set(item_id, "password", self._format_password(item_id, entry.get("password", "")))
             self.set(item_id, "toggle", self._toggle_icon(item_id))
 
+    def _ensure_password_loaded(self, entry_id: str) -> bool:
+        entry = self._entries_data.get(entry_id)
+        if not entry:
+            return False
+        if entry.get("password"):
+            return True
+        if not self._password_reveal_callback:
+            return False
+
+        password = self._password_reveal_callback(entry_id)
+        if not password:
+            return False
+        entry["password"] = password
+        return True
+
     def _toggle_entry_password_visibility(self, entry_id: str):
         if not entry_id or entry_id not in self._entries_data:
             return
@@ -166,6 +188,8 @@ class SecureTable(ttk.Treeview):
         if entry_id in self._visible_password_ids:
             self._visible_password_ids.remove(entry_id)
         else:
+            if not self._ensure_password_loaded(entry_id):
+                return
             self._visible_password_ids.add(entry_id)
 
         entry = self._entries_data.get(entry_id, {})

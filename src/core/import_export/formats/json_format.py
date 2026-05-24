@@ -16,7 +16,7 @@ class NativeJSONFormatHandler:
         integrity: Dict[str, Any],
         metadata: Dict[str, Any],
     ) -> Dict[str, Any]:
-        return {
+        package = {
             "version": "1.0",
             "format_schema": NATIVE_EXPORT_SCHEMA,
             "cryptosafe_export": True,
@@ -26,6 +26,10 @@ class NativeJSONFormatHandler:
             "data": encrypted_payload["data"],
             "integrity": integrity,
         }
+        for key in ("encrypted_key", "ephemeral_public_key"):
+            if encrypted_payload.get(key):
+                package[key] = encrypted_payload[key]
+        return package
 
     @staticmethod
     def dumps(package: Dict[str, Any]) -> bytes:

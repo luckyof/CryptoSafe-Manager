@@ -56,6 +56,7 @@ class NativeExportFormatSpec:
         "AES-256-GCM",
         "RSA-OAEP/AES-128-GCM",
         "RSA-OAEP/AES-256-GCM",
+        "ECIES-P-256/AES-256-GCM",
     )
 
     def validate(self, package: Dict[str, Any]) -> bool:
@@ -80,6 +81,12 @@ class NativeExportFormatSpec:
             _require_base64(encryption["aad"], "aad")
         if package.get("encrypted_key"):
             _require_base64(package["encrypted_key"], "encrypted_key")
+        if package.get("ephemeral_public_key"):
+            _require_base64(package["ephemeral_public_key"], "ephemeral_public_key")
+        if encryption.get("algorithm", "").startswith("RSA-OAEP") and not package.get("encrypted_key"):
+            raise FormatValidationError("RSA native export package requires encrypted_key.")
+        if encryption.get("algorithm") == "ECIES-P-256/AES-256-GCM" and not package.get("ephemeral_public_key"):
+            raise FormatValidationError("ECC native export package requires ephemeral_public_key.")
 
         integrity = _require_mapping(package.get("integrity"), "Integrity metadata")
         _require_keys(integrity, ("hash_algorithm", "hash", "signature_algorithm", "signature"), "Integrity metadata")

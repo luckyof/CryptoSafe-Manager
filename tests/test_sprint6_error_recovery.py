@@ -154,3 +154,36 @@ def test_err_4_decrypt_abort(tmp_path):
     finally:
         source_db.close()
         target_db.close()
+
+
+def test_err_replace_import_rolls_back_on_failure(tmp_path):
+    db, entry_manager = _vault(tmp_path, "err-replace-rollback")
+    entry_manager.create_entry(
+        {
+            "title": "Existing",
+            "username": "old@example.com",
+            "password": "old-secret",
+            "url": "https://old.example",
+        }
+    )
+    content = _csv(
+        [
+            ("First", "one@example.com", "one-secret", "https://one.example"),
+            ("Second", "two@example.com", "two-secret", "https://two.example"),
+        ]
+    )
+    failing = FailingEntryManager(entry_manager, fail_after=1)
+
+    try:
+        with pytest.raises(RuntimeError):
+            VaultImporter(failing).import_from_bytes(
+                content,
+                ImportOptions(format="csv", mode="replace"),
+            )
+
+        entries = entry_manager.get_all_entries(include_decrypted_password=True)
+        assert len(entries) == 1
+        assert entries[0]["title"] == "Existing"
+        assert entries[0]["password"] == "old-secret"
+    finally:
+        db.close()

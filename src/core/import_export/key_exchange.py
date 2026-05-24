@@ -16,7 +16,7 @@ from core.events import event_bus
 
 QR_PAYLOAD_VERSION = "1.0"
 QR_DEFAULT_TTL_SECONDS = 5 * 60
-QR_DEFAULT_CHUNK_SIZE = 1800
+QR_DEFAULT_CHUNK_SIZE = 700
 QR_MAX_VALIDITY_SECONDS = 30 * 60
 SUPPORTED_QR_TYPES = {"public_key", "encrypted_entry", "share_link"}
 
@@ -485,7 +485,7 @@ class KeyExchangeService:
             return None
 
         qr = qrcode.QRCode(
-            version=None,
+            version=1,
             error_correction=qrcode.constants.ERROR_CORRECT_M,
             box_size=10,
             border=4,
