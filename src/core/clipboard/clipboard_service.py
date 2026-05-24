@@ -10,6 +10,7 @@ from typing import Any, Callable, Optional, Set
 
 from core.events import event_bus
 from core.state_manager import state_manager
+from core.security.memory_guard import get_secure_memory, SecureMemory
 
 from .platform_adapter import ClipboardAdapter, get_default_clipboard_adapter
 
@@ -43,6 +44,7 @@ class SecureClipboardItem:
         self.data_type = data_type
         self.source_entry_id = source_entry_id
         self.created_at = time.monotonic()
+        self._memory = get_secure_memory()
         self._mask = bytearray(secrets.token_bytes(32))
         encoded = bytearray(data, "utf-8")
         try:
@@ -91,13 +93,13 @@ class SecureClipboardItem:
             if address is None:
                 continue
             size = len(buffer)
-            if self._platform_lock(address, size):
+            if self._memory.lock_address(address, size):
                 self._locked_buffers.append((address, size))
 
     def _unlock_memory(self):
         while self._locked_buffers:
             address, size = self._locked_buffers.pop()
-            self._platform_unlock(address, size)
+            self._memory.unlock_address(address, size)
 
     @staticmethod
     def _buffer_address(buffer: bytearray) -> Optional[int]:
@@ -136,20 +138,14 @@ class SecureClipboardItem:
     def _zero_bytes(buffer: bytearray):
         if not buffer:
             return
-        try:
-            ptr = (ctypes.c_char * len(buffer)).from_buffer(buffer)
-            ctypes.memset(ptr, 0, len(buffer))
-        except Exception:
-            for index in range(len(buffer)):
-                buffer[index] = 0
+        get_secure_memory().secure_zero(buffer)
 
     @staticmethod
     def _zero_compact_ascii_string(value: str):
         if not isinstance(value, str) or not value.isascii():
             return
         try:
-            data_offset = sys.getsizeof("") - 1
-            ctypes.memset(id(value) + data_offset, 0, len(value))
+            SecureMemory.wipe_compact_ascii_string(value)
         except Exception as exc:
             logger.debug("Clipboard string wipe failed: %s", exc)
 
@@ -197,7 +193,7 @@ class ClipboardService:
         data_type: str = "password",
         source_entry_id: Optional[str] = None,
     ) -> bool:
-        """Copy sensitive text and publish ClipboardCopied."""
+        """Скопировать чувствительный текст и опубликовать ClipboardCopied."""
         try:
             self._validate_copy_request(data, data_type)
         except Exception as exc:
@@ -259,7 +255,7 @@ class ClipboardService:
         return self.copy_to_clipboard(blob_text, data_type="encrypted_blob", source_entry_id=source_entry_id)
 
     def copy_entry_field(self, entry_manager, entry_id: str, field_name: str) -> bool:
-        """Fetch a decrypted vault entry and copy one allowed field."""
+        """Получить расшифрованную запись хранилища и скопировать разрешённое поле."""
         entry = self._get_entry_for_clipboard(entry_manager, entry_id, field_name)
         value = entry.get(field_name, "")
         if not value:
@@ -284,7 +280,7 @@ class ClipboardService:
                 value = ""
 
     def copy_entry_summary(self, entry_manager, entry_id: str) -> bool:
-        """Copy a safe multi-field summary from the latest decrypted vault entry."""
+        """Скопировать безопасную сводку из нескольких полей последней расшифрованной записи."""
         entry = self._get_entry_for_clipboard(entry_manager, entry_id, "summary")
         fields = [
             ("Title", entry.get("title", "")),
@@ -302,7 +298,7 @@ class ClipboardService:
             return self._clear_clipboard_locked(reason, publish_event=True)
 
     def shutdown(self) -> bool:
-        """Clear clipboard before application exit."""
+        """Очистить буфер обмена перед выходом из приложения."""
         self._unregister_exit_handler()
         return self.clear_clipboard("close")
 
@@ -311,7 +307,7 @@ class ClipboardService:
             return self._build_status_locked()
 
     def reveal_current_content(self, authenticator: Callable[[], bool]) -> Optional[str]:
-        """Reveal current clipboard data only after caller-provided authentication."""
+        """Показать текущие данные буфера обмена только после внешней аутентификации."""
         with self._lock:
             if not self.current_content:
                 return None

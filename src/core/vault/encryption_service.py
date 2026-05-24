@@ -14,6 +14,7 @@ import logging
 from typing import Optional, Dict, Any
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.exceptions import InvalidTag
+from core.security.side_channel_protection import SideChannelProtection
 
 logger = logging.getLogger("AES256GCMService")
 
@@ -29,10 +30,12 @@ class AES256GCMService:
         self._aesgcm: Optional[AESGCM] = None
         self._key_manager = None
         self._active_key: Optional[bytes] = None
+        self._side_channel = SideChannelProtection()
 
     def set_key_manager(self, key_manager):
         """ARC-2: Внедрение зависимости KeyManager."""
         self._key_manager = key_manager
+        self._side_channel = SideChannelProtection(getattr(key_manager, "config", {}) or {})
         self._aesgcm = None
         self._active_key = None
 
@@ -59,7 +62,8 @@ class AES256GCMService:
     def _ensure_cipher(self):
         """Ленивая инициализация шифра после появления ключа в памяти."""
         key = self._get_normalized_key()
-        if self._aesgcm is None or self._active_key != key:
+        key_changed = self._active_key is None or not self._side_channel.compare(self._active_key, key)
+        if self._aesgcm is None or key_changed:
             self._aesgcm = AESGCM(key)
             self._active_key = key
             logger.debug("AES-256-GCM cipher initialized")
@@ -75,16 +79,17 @@ class AES256GCMService:
         Returns:
             BLOB формата: nonce (12B) || ciphertext || tag (16B)
         """
+        self._side_channel.apply_crypto_jitter()
         self._ensure_cipher()
 
-        # ENC-2: Уникальный 12-byte nonce
+        # ENC-2: Уникальный 12-байтовый nonce
         nonce = os.urandom(NONCE_SIZE)
 
         # Шифрование (AESGCM.encrypt автоматически добавляет 16-byte tag)
         ciphertext = self._aesgcm.encrypt(nonce, data, associated_data)
 
-        # ENC-4: Формат nonce || ciphertext || tag
-        # ciphertext уже включает tag в конце (AESGCM.encrypt возвращает ciphertext+tag)
+        # ENC-4: Формат nonce || шифртекст || tag
+        # Шифртекст уже включает tag в конце (AESGCM.encrypt возвращает шифртекст + tag)
         encrypted_blob = nonce + ciphertext
 
         logger.debug(f"Encrypted {len(data)} bytes -> {len(encrypted_blob)} bytes")
@@ -104,9 +109,10 @@ class AES256GCMService:
         Raises:
             ValueError: Если blob слишком короткий или tag невалиден
         """
+        self._side_channel.apply_crypto_jitter()
         self._ensure_cipher()
 
-        # ENC-4: Извлекаем nonce и ciphertext+tag
+        # ENC-4: Извлекаем nonce и шифртекст + tag
         if len(encrypted_blob) < NONCE_SIZE + TAG_SIZE:
             raise ValueError(f"Encrypted blob too short: {len(encrypted_blob)} bytes")
 
@@ -114,7 +120,7 @@ class AES256GCMService:
         ciphertext_with_tag = encrypted_blob[NONCE_SIZE:]
 
         try:
-            # ENC-5: Валидация authentication tag (происходит автоматически)
+            # ENC-5: Валидация тега аутентификации происходит автоматически
             plaintext = self._aesgcm.decrypt(nonce, ciphertext_with_tag, associated_data)
             logger.debug(f"Decrypted {len(encrypted_blob)} bytes -> {len(plaintext)} bytes")
             return plaintext

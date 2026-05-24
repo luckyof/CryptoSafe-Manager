@@ -10,8 +10,6 @@ Entry Manager — централизованный CRUD контроллер д�
 import json
 import uuid
 import logging
-import ctypes
-import sys
 from difflib import SequenceMatcher
 from datetime import datetime, timezone
 from typing import List, Dict, Optional, Any
@@ -20,8 +18,11 @@ from dataclasses import dataclass, field
 from .encryption_service import AES256GCMService
 from .password_generator import PasswordStrength
 from core.events import event_bus
+from core.security.memory_guard import SecureMemory
+from core.security.side_channel_protection import SideChannelProtection
 
 logger = logging.getLogger("EntryManager")
+_SIDE_CHANNEL = SideChannelProtection()
 
 # Версия формата данных
 ENTRY_VERSION = 1
@@ -84,7 +85,7 @@ class EntryManager:
         entry_id = str(uuid.uuid4())
         now = _now_iso()
 
-        # DATA-1: Формируем plaintext payload
+        # DATA-1: Формируем plaintext-payload
         plaintext_data = {
             "title": data.get("title", "").strip(),
             "username": data.get("username", ""),
@@ -425,7 +426,7 @@ class EntryManager:
                 entry_value = str(entry.get(field_name, "")).lower()
                 match = self._matches_query(field_value, entry_value)
             else:
-                # Fuzzy matching: проверяем все текстовые поля (SEARCH-1)
+                # Нечёткое совпадение: проверяем все текстовые поля (SEARCH-1)
                 searchable_fields = ["title", "username", "url", "notes", "category"]
                 for field_name in searchable_fields:
                     if self._matches_query(query_lower, str(entry.get(field_name, "")).lower()):
@@ -563,23 +564,11 @@ class EntryManager:
 
     @staticmethod
     def _zero_compact_ascii_string(value: str):
-        if not isinstance(value, str) or not value.isascii():
-            return
-        try:
-            data_offset = sys.getsizeof("") - 1
-            ctypes.memset(id(value) + data_offset, 0, len(value))
-        except Exception as exc:
-            logger.debug("Entry plaintext string wipe failed: %s", exc)
+        SecureMemory.wipe_compact_ascii_string(value)
 
     @staticmethod
     def _zero_immutable_bytes(value: bytes):
-        if not isinstance(value, bytes):
-            return
-        try:
-            data_offset = sys.getsizeof(b"") - 1
-            ctypes.memset(id(value) + data_offset, 0, len(value))
-        except Exception as exc:
-            logger.debug("Entry plaintext bytes wipe failed: %s", exc)
+        SecureMemory.wipe_immutable_bytes(value)
 
     def _audit(self, action: str, entry_id: str, details: str):
         """Запись в журнал аудита."""
@@ -617,20 +606,20 @@ class EntryManager:
 
     @staticmethod
     def _matches_query(query: str, value: str) -> bool:
-        """SEARCH-1: substring + простая typo-tolerant fuzzy matching."""
+        """SEARCH-1: подстрока + простое нечёткое сопоставление с учётом опечаток."""
         query = query.strip().lower()
         value = value.strip().lower()
 
         if not query or not value:
             return False
 
-        if query in value:
+        if _SIDE_CHANNEL.contains(query, value):
             return True
 
         query_tokens = [token for token in query.split() if token]
         value_tokens = [token for token in value.split() if token]
 
-        if query_tokens and all(token in value for token in query_tokens):
+        if query_tokens and _SIDE_CHANNEL.all_tokens_contained(query_tokens, value):
             return True
 
         candidates = value_tokens if value_tokens else [value]

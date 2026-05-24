@@ -4,8 +4,9 @@ from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.backends import default_backend
 import os
-import secrets
 import logging
+from core.security.memory_guard import SecureMemory
+from core.security.side_channel_protection import SideChannelProtection
 
 logger = logging.getLogger("KeyDerivation")
 
@@ -18,6 +19,7 @@ class KeyDerivationService:
 
     def __init__(self, config: dict = None):
         cfg = config or {}
+        self.side_channel = SideChannelProtection(cfg)
         
         # Чтение конфига с валидацией
         time_cost = self._validate_param(cfg.get('argon2_time', 3), 1, self.MAX_TIME_COST, "time_cost")
@@ -53,16 +55,20 @@ class KeyDerivationService:
 
     def verify_password(self, password: str, stored_hash: str) -> bool:
         try:
-            self.argon2_hasher.verify(stored_hash, password)
-            return True
+            verified = self.argon2_hasher.verify(stored_hash, password)
+            # Выполняем constant-time операцию и в успешном пути, чтобы
+            # Python-обёртка не имела очевидно более дешёвой ветки.
+            return self.side_channel.compare(b"verified", b"verified") and bool(verified)
         except VerifyMismatchError:
-            secrets.compare_digest(b'dummy', b'dummy')
+            self.side_channel.compare(b"verified", b"mismatch")
             return False
         except Exception as e:
             logger.error(f"Verification error: {e}")
+            self.side_channel.compare(b"verified", b"error")
             return False
 
     def derive_encryption_key(self, password: str, salt: bytes) -> bytes:
+        self.side_channel.apply_crypto_jitter()
         kdf = PBKDF2HMAC(
             algorithm=hashes.SHA256(),
             length=32,
@@ -70,4 +76,8 @@ class KeyDerivationService:
             iterations=self.pbkdf2_iterations,
             backend=default_backend()
         )
-        return kdf.derive(password.encode('utf-8'))
+        password_bytes = password.encode('utf-8')
+        try:
+            return kdf.derive(password_bytes)
+        finally:
+            SecureMemory.wipe_immutable_bytes(password_bytes)

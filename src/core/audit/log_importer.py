@@ -3,6 +3,8 @@ import json
 from datetime import datetime, timezone
 from typing import Dict, Any
 
+from core.security.side_channel_protection import constant_time_compare
+
 try:
     from cryptography.exceptions import InvalidSignature
     from cryptography.hazmat.primitives.asymmetric import ed25519
@@ -43,7 +45,7 @@ class AuditLogImportVerifier:
             entry_hash = entry.get("entry_hash") or ""
             signature = entry.get("signature") or ""
 
-            if hashlib.sha256(entry_bytes).hexdigest() != entry_hash:
+            if not constant_time_compare(hashlib.sha256(entry_bytes).hexdigest(), entry_hash):
                 self._mark_invalid(result, sequence_number, "hash mismatch")
                 continue
 
@@ -53,7 +55,7 @@ class AuditLogImportVerifier:
                 continue
 
             previous_hash_field = entry.get("previous_hash")
-            if previous_hash_field != previous_hash:
+            if not constant_time_compare(previous_hash_field or "", previous_hash):
                 result["verified"] = False
                 result["chain_breaks"].append(
                     {"sequence": sequence_number, "expected": previous_hash, "actual": previous_hash_field}

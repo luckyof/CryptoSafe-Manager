@@ -23,10 +23,10 @@ class KeyManager:
         self.db = db_helper
         self.config = config or {}
         self.derivation = KeyDerivationService(self.config)
-        self.storage = SecureMemoryCache()
+        self.storage = SecureMemoryCache(self.config)
         self.auth = AuthenticationService()
         
-        # Auto-lock timer (CACHE-2, FUTURE-3)
+        # Таймер авто-блокировки (CACHE-2, FUTURE-3)
         self._auto_lock_timer: Optional[threading.Timer] = None
         self._auto_lock_callback: Optional[Callable] = None
         self._lock = threading.Lock()
@@ -160,7 +160,7 @@ class KeyManager:
         return hkdf.derive(base_key)
 
     def derive_audit_signing_key(self, length: int = 32) -> bytes:
-        """Derive the Sprint 5 audit signing key with key separation."""
+        """Вывести ключ подписи аудита Sprint 5 с разделением ключей."""
         return self.derive_key(AUDIT_SIGNING_PURPOSE, length)
 
     def on_minimize(self):
@@ -204,10 +204,10 @@ class KeyManager:
 
             # Текущий сервис для расшифровки
             decrypt_service = AES256GCMService()
-            decrypt_service.set_key_manager(self)  # self — KeyManager
+            decrypt_service.set_key_manager(self)  # текущий экземпляр KeyManager
 
             # Новый сервис для шифрования
-            temp_storage = SecureMemoryCache()
+            temp_storage = SecureMemoryCache(self.config)
             temp_storage.store_key(new_enc_key)
 
             encrypt_service = AES256GCMService()

@@ -11,7 +11,7 @@ def _now_iso() -> str:
 
 
 class VaultManager:
-    """Legacy wrapper over the Sprint 3 encrypted_data storage model."""
+    """Совместимая обёртка над моделью хранения encrypted_data из Sprint 3."""
 
     def __init__(self, db: DatabaseHelper, encryption_service: EncryptionService):
         self.db = db

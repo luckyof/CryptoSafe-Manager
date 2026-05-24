@@ -3,6 +3,7 @@ argon2-cffi>=21.3.0
 cryptography>=38.0.0
 pyperclip>=1.8.2
 qrcode>=7.4.2
+pystray>=0.19.5
 pywin32>=306; sys_platform == "win32"
 pyobjc-framework-Cocoa>=9.0; sys_platform == "darwin"
 

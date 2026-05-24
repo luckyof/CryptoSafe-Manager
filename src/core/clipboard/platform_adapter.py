@@ -28,15 +28,15 @@ class ClipboardAdapter(ABC):
 
     @abstractmethod
     def copy_to_clipboard(self, data: str) -> bool:
-        """Copy text data to the system clipboard."""
+        """Скопировать текстовые данные в системный буфер обмена."""
 
     @abstractmethod
     def clear_clipboard(self) -> bool:
-        """Clear the system clipboard."""
+        """Очистить системный буфер обмена."""
 
     @abstractmethod
     def get_clipboard_content(self) -> Optional[str]:
-        """Return current text clipboard content when available."""
+        """Вернуть текущий текст из буфера обмена, если он доступен."""
 
     def get_access_info(self) -> ClipboardAccessInfo:
         try:

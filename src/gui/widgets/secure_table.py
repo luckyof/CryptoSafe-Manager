@@ -8,7 +8,7 @@ from typing import Callable, List, Dict, Any, Set
 
 
 class SecureTable(ttk.Treeview):
-    """Table for displaying vault entries."""
+    """Таблица для отображения записей хранилища."""
 
     def __init__(self, parent, **kwargs):
         columns = ("title", "username", "password", "toggle", "url", "updated_at", "category")
@@ -19,6 +19,8 @@ class SecureTable(ttk.Treeview):
         self._on_entry_selected_callback = None
         self._on_context_action_callback = None
         self._password_reveal_callback = None
+        self.configure(takefocus=True)
+        setattr(self, "accessible_name", "Vault entries table")
 
         self.heading("title", text="Название", command=lambda: self._sort_by_column("title"))
         self.heading("username", text="Логин", command=lambda: self._sort_by_column("username"))
@@ -55,57 +57,88 @@ class SecureTable(ttk.Treeview):
         self.bind("<Button-1>", self._on_left_click, add="+")
         self.bind("<Button-3>", self._show_context_menu)
         self.bind("<Double-1>", self._on_double_click)
+        self.bind("<Return>", lambda event: self._on_open())
+        self.bind("<space>", lambda event: self.toggle_password_visibility())
         self.tag_configure("clipboard_active", background="#fff3cd")
 
     def load_data(self, data: List[Dict[str, Any]]):
-        """Load entry data into the table."""
+        """Загрузить данные записей в таблицу."""
+        self.clear_data()
+        self.append_data(data)
+
+    def clear_data(self):
+        """Очистить текущие строки, сохранив обратные вызовы и настройки таблицы."""
         self.delete(*self.get_children())
         self._entries_data.clear()
+        self._visible_password_ids.clear()
 
+    def append_data(self, data: List[Dict[str, Any]]):
+        """Добавить пачку записей; используется для пошаговой загрузки больших хранилищ."""
         valid_ids = {item.get("id", "") for item in data if item.get("id", "")}
         self._visible_password_ids.intersection_update(valid_ids)
 
         for item in data:
-            entry_id = item.get("id", "")
-            self._entries_data[entry_id] = item
+            self._insert_entry(item)
 
-            username = self._mask_username(item.get("username", ""))
-            password = self._format_password(entry_id, item.get("password", ""))
-            toggle = self._toggle_icon(entry_id)
-            url_display = self._extract_domain(item.get("url", ""))
-            updated_at = self._format_date(item.get("updated_at", ""))
+    def load_data_incremental(self, data: List[Dict[str, Any]], batch_size: int, schedule: Callable, on_done: Callable):
+        """Загружать строки небольшими пачками, чтобы интерфейс оставался отзывчивым."""
+        self.clear_data()
+        total = len(data)
+        batches = [data[index : index + batch_size] for index in range(0, total, max(1, batch_size))]
 
-            self.insert(
-                "",
-                tk.END,
-                iid=entry_id,
-                values=(
-                    item.get("title", ""),
-                    username,
-                    password,
-                    toggle,
-                    url_display,
-                    updated_at,
-                    item.get("category", ""),
-                ),
-            )
+        def load_batch(index: int = 0):
+            if index >= len(batches):
+                if on_done:
+                    on_done(total)
+                return
+            self.append_data(batches[index])
+            schedule(1, lambda: load_batch(index + 1))
+
+        load_batch()
+
+    def _insert_entry(self, item: Dict[str, Any]):
+        entry_id = item.get("id", "")
+        if not entry_id:
+            entry_id = f"row-{len(self._entries_data) + 1}"
+        self._entries_data[entry_id] = item
+
+        username = self._mask_username(item.get("username", ""))
+        password = self._format_password(entry_id, item.get("password", ""))
+        toggle = self._toggle_icon(entry_id)
+        url_display = self._extract_domain(item.get("url", ""))
+        updated_at = self._format_date(item.get("updated_at", ""))
+
+        self.insert(
+            "",
+            tk.END,
+            iid=entry_id,
+            values=(
+                item.get("title", ""),
+                username,
+                password,
+                toggle,
+                url_display,
+                updated_at,
+                item.get("category", ""),
+            ),
+        )
 
     def set_clipboard_entry(self, entry_id: str = None):
-        """Highlight the row whose content is currently in the clipboard."""
+        """Подсветить строку, данные которой сейчас находятся в буфере обмена."""
         for item_id in self.get_children():
             self.item(item_id, tags=("clipboard_active",) if entry_id and item_id == entry_id else ())
 
     def get_selected_entries(self) -> List[Dict[str, Any]]:
-        """Return selected entry payloads."""
+        """Вернуть данные выбранных записей."""
         selected_iids = self.selection()
         return [self._entries_data.get(iid, {}) for iid in selected_iids if iid in self._entries_data]
 
     def get_selected_ids(self) -> List[str]:
-        """Return selected entry ids."""
+        """Вернуть идентификаторы выбранных записей."""
         return list(self.selection())
 
     def toggle_password_visibility(self):
-        """Toggle password visibility for selected rows."""
+        """Переключить видимость паролей для выбранных строк."""
         selected_ids = self.get_selected_ids()
         if not selected_ids:
             return False
@@ -123,21 +156,21 @@ class SecureTable(ttk.Treeview):
         return any(entry_id in self._visible_password_ids for entry_id in selected_ids)
 
     def passwords_visible(self) -> bool:
-        """Return whether any selected password is currently shown."""
+        """Проверить, показан ли сейчас хотя бы один выбранный пароль."""
         selected_ids = self.get_selected_ids()
         return any(entry_id in self._visible_password_ids for entry_id in selected_ids)
 
     def set_selection_callback(self, callback: Callable):
-        """Set selection callback."""
+        """Установить обратный вызов выбора строки."""
         self._on_entry_selected_callback = callback
         self.bind("<<TreeviewSelect>>", self._on_select)
 
     def set_context_callback(self, callback: Callable):
-        """Set context action callback."""
+        """Установить обратный вызов действия из контекстного меню."""
         self._on_context_action_callback = callback
 
     def set_password_reveal_callback(self, callback: Callable):
-        """Set callback used to lazily load a decrypted password for display."""
+        """Установить обратный вызов для ленивой загрузки расшифрованного пароля."""
         self._password_reveal_callback = callback
 
     def _mask_username(self, username: str) -> str:

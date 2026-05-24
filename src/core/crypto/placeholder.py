@@ -8,7 +8,7 @@ class AES256Placeholder(EncryptionService):
         if not key:
             raise ValueError("Key not set")
             
-        # XOR Заглушка
+        # XOR-заглушка
         key_len = len(key)
         return bytes([data[i] ^ key[i % key_len] for i in range(len(data))])
 

@@ -150,18 +150,18 @@ class EntryDialog(tk.Toplevel):
         frame = ttk.Frame(self, padding=20)
         frame.pack(fill=tk.BOTH, expand=True)
 
-        # Title (обязательное)
+        # Название (обязательное)
         ttk.Label(frame, text="Название *").pack(anchor=tk.W)
         self.title_entry = ttk.Entry(frame, width=50)
         self.title_entry.pack(fill=tk.X, pady=(0, 10))
         self.title_entry.focus()
 
-        # Username
+        # Имя пользователя
         ttk.Label(frame, text="Логин / Email").pack(anchor=tk.W)
         self.username_entry = ttk.Entry(frame, width=50)
         self.username_entry.pack(fill=tk.X, pady=(0, 10))
 
-        # Password (обязательное)
+        # Пароль (обязательное)
         ttk.Label(frame, text="Пароль *").pack(anchor=tk.W)
 
         pwd_frame = ttk.Frame(frame)
@@ -170,41 +170,41 @@ class EntryDialog(tk.Toplevel):
         self.password_entry = ttk.Entry(pwd_frame, width=40, show="*")
         self.password_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
-        # Toggle visibility
+        # Переключение видимости
         self.show_pwd_var = tk.BooleanVar(value=False)
         toggle_btn = ttk.Checkbutton(pwd_frame, text="👁", variable=self.show_pwd_var,
                                       command=self._toggle_password_visibility)
         toggle_btn.pack(side=tk.RIGHT, padx=(5, 0))
 
-        # Generate button
+        # Кнопка генерации
         gen_btn = ttk.Button(pwd_frame, text="Сгенерировать", command=self._show_generator)
         gen_btn.pack(side=tk.RIGHT)
 
-        # Password strength meter (DIALOG-1)
+        # Индикатор сложности пароля (DIALOG-1)
         from gui.widgets.password_strength_meter import PasswordStrengthMeter
         self.strength_meter = PasswordStrengthMeter(frame)
         self.strength_meter.pack(fill=tk.X, pady=(0, 10))
 
-        # Bind password changes to strength meter
+        # Привязка изменений пароля к индикатору сложности
         self.password_entry.bind("<KeyRelease>", lambda e: self._update_strength())
 
-        # URL
+        # Адрес сайта
         ttk.Label(frame, text="URL").pack(anchor=tk.W)
         self.url_entry = ttk.Entry(frame, width=50)
         self.url_entry.pack(fill=tk.X, pady=(0, 10))
-        self.url_entry.bind("<FocusOut>", self._on_url_focus_out)  # DIALOG-3: auto-fill
+        self.url_entry.bind("<FocusOut>", self._on_url_focus_out)  # DIALOG-3: автозаполнение
 
-        # Notes
+        # Заметки
         ttk.Label(frame, text="Заметки").pack(anchor=tk.W)
         self.notes_text = tk.Text(frame, width=50, height=4)
         self.notes_text.pack(fill=tk.X, pady=(0, 10))
 
-        # Category
+        # Категория
         ttk.Label(frame, text="Категория").pack(anchor=tk.W)
         self.category_entry = ttk.Entry(frame, width=50)
         self.category_entry.pack(fill=tk.X, pady=(0, 10))
 
-        # Tags
+        # Теги
         ttk.Label(frame, text="Теги (через запятую)").pack(anchor=tk.W)
         self.tags_entry = ttk.Entry(frame, width=50)
         self.tags_entry.pack(fill=tk.X, pady=(0, 15))
@@ -252,7 +252,7 @@ class EntryDialog(tk.Toplevel):
         self._update_strength()
 
     def _on_url_focus_out(self, event):
-        """DIALOG-3: Auto-fill username по домену."""
+        """DIALOG-3: Автозаполнение имени пользователя по домену."""
         url = self.url_entry.get().strip()
         if url and not self.username_entry.get():
             # Извлекаем домен и предлагаем как username

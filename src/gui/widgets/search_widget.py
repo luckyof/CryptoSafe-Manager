@@ -21,7 +21,7 @@ class SearchWidget(ttk.Frame):
 
         self.on_search_callback = on_search
         self._search_history: List[str] = []
-        self._max_history = 10  # SEARCH-4
+        self._max_history = 10  # SEARCH-4: размер истории поиска
 
         search_frame = ttk.Frame(self)
         search_frame.pack(fill=tk.X, padx=5, pady=5)
@@ -31,6 +31,8 @@ class SearchWidget(ttk.Frame):
         self.search_var = tk.StringVar()
         self.search_entry = ttk.Entry(search_frame, textvariable=self.search_var, width=42)
         self.search_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.search_entry.configure(takefocus=True)
+        setattr(self.search_entry, "accessible_name", "Search vault entries")
         self.search_entry.insert(0, self.PLACEHOLDER)
         self.search_entry.bind("<FocusIn>", self._on_focus_in)
         self.search_entry.bind("<FocusOut>", self._on_focus_out)
@@ -91,6 +93,8 @@ class SearchWidget(ttk.Frame):
         ttk.Button(filter_frame, text="Применить", command=self._trigger_search).pack(side=tk.LEFT, padx=(0, 5))
         ttk.Button(filter_frame, text="Сбросить фильтры", command=self.clear_filters).pack(side=tk.LEFT)
 
+        self.bind_all("<Escape>", lambda event: self.clear())
+
     def _on_focus_in(self, event):
         current = self.search_var.get()
         if current == self.PLACEHOLDER:
@@ -146,6 +150,10 @@ class SearchWidget(ttk.Frame):
     def clear(self):
         self.search_var.set("")
         self.clear_filters()
+
+    def focus_search(self):
+        self.search_entry.focus_set()
+        self.search_entry.selection_range(0, tk.END)
 
     def clear_filters(self):
         self.category_var.set("Все")

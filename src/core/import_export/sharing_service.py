@@ -16,6 +16,7 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 from core.events import event_bus
+from core.security.side_channel_protection import constant_time_compare
 
 from .formats import FormatValidationError, SHARED_ENTRY_SCHEMA, SharedEntryFormatSpec
 from .exporter import VaultExporter
@@ -183,7 +184,7 @@ class SharingService:
         else:
             raise ShareValidationError("Unsupported share encryption method.")
 
-        if hashlib.sha256(plaintext).hexdigest() != package["integrity"]["hash"]:
+        if not constant_time_compare(hashlib.sha256(plaintext).hexdigest(), package["integrity"]["hash"]):
             raise ShareValidationError("Shared payload integrity hash mismatch.")
 
         payload = json.loads(plaintext.decode("utf-8"))

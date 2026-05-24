@@ -4,6 +4,8 @@ import logging
 import os
 from typing import Any, Optional, TYPE_CHECKING
 
+from core.events import event_bus
+
 if TYPE_CHECKING:
     from src.core.key_manager import KeyManager
     from src.database.db import DatabaseHelper
@@ -43,7 +45,158 @@ CLIPBOARD_PRESETS = {
     },
 }
 
+SECURITY_PROFILES = {
+    "Standard": {
+        "side_channel_protection_enabled": True,
+        "cache_timing_protection": True,
+        "normalize_crypto_timing": True,
+        "random_crypto_delay": False,
+        "memory_protection_enabled": True,
+        "memory_lock_enabled": True,
+        "memory_wipe_passes": 1,
+        "memory_guard_pages_enabled": True,
+        "memory_canary_enabled": True,
+        "activity_lock_timeout_seconds": 300,
+        "activity_lock_timeout_seconds_desktop": 300,
+        "activity_lock_timeout_seconds_laptop": 300,
+        "activity_sensitivity": "medium",
+        "panic_mode_enabled": True,
+        "panic_hotkey": "Ctrl+Shift+Esc",
+        "panic_close_application": False,
+        "panic_stealth_mode": False,
+        "panic_show_fake_error": False,
+        "panic_fake_error_message": "The application has encountered an unexpected error.",
+        "panic_launch_decoy": False,
+        "panic_decoy_command": "",
+        "panic_redirect_url": "",
+        "panic_mouse_gesture_enabled": True,
+        "platform_secure_storage_enabled": True,
+        "windows_credential_guard_enabled": True,
+        "windows_hello_enabled": False,
+        "windows_secure_desktop_enabled": True,
+        "macos_keychain_enabled": True,
+        "macos_touch_id_enabled": False,
+        "macos_gatekeeper_check_enabled": True,
+        "linux_kernel_keyring_enabled": True,
+        "linux_systemd_integration_enabled": True,
+        "linux_lsm_policy_enabled": True,
+    },
+    "Enhanced": {
+        "side_channel_protection_enabled": True,
+        "cache_timing_protection": True,
+        "normalize_crypto_timing": True,
+        "random_crypto_delay": False,
+        "memory_protection_enabled": True,
+        "memory_lock_enabled": True,
+        "memory_wipe_passes": 2,
+        "memory_guard_pages_enabled": True,
+        "memory_canary_enabled": True,
+        "activity_lock_timeout_seconds": 180,
+        "activity_lock_timeout_seconds_desktop": 180,
+        "activity_lock_timeout_seconds_laptop": 120,
+        "activity_sensitivity": "high",
+        "panic_mode_enabled": True,
+        "panic_hotkey": "Ctrl+Shift+Esc",
+        "panic_close_application": False,
+        "panic_stealth_mode": False,
+        "panic_show_fake_error": False,
+        "panic_fake_error_message": "The application has encountered an unexpected error.",
+        "panic_launch_decoy": False,
+        "panic_decoy_command": "",
+        "panic_redirect_url": "",
+        "panic_mouse_gesture_enabled": True,
+        "platform_secure_storage_enabled": True,
+        "windows_credential_guard_enabled": True,
+        "windows_hello_enabled": False,
+        "windows_secure_desktop_enabled": True,
+        "macos_keychain_enabled": True,
+        "macos_touch_id_enabled": False,
+        "macos_gatekeeper_check_enabled": True,
+        "linux_kernel_keyring_enabled": True,
+        "linux_systemd_integration_enabled": True,
+        "linux_lsm_policy_enabled": True,
+    },
+    "Paranoid": {
+        "side_channel_protection_enabled": True,
+        "cache_timing_protection": True,
+        "normalize_crypto_timing": True,
+        "random_crypto_delay": True,
+        "random_delay_min_ms": 1,
+        "random_delay_max_ms": 5,
+        "memory_protection_enabled": True,
+        "memory_lock_enabled": True,
+        "memory_wipe_passes": 3,
+        "memory_guard_pages_enabled": True,
+        "memory_canary_enabled": True,
+        "activity_lock_timeout_seconds": 60,
+        "activity_lock_timeout_seconds_desktop": 60,
+        "activity_lock_timeout_seconds_laptop": 60,
+        "activity_sensitivity": "high",
+        "panic_mode_enabled": True,
+        "panic_hotkey": "Ctrl+Shift+Esc",
+        "panic_close_application": False,
+        "panic_stealth_mode": True,
+        "panic_show_fake_error": True,
+        "panic_fake_error_message": "The application has encountered an unexpected error.",
+        "panic_launch_decoy": False,
+        "panic_decoy_command": "",
+        "panic_redirect_url": "",
+        "panic_mouse_gesture_enabled": True,
+        "platform_secure_storage_enabled": True,
+        "windows_credential_guard_enabled": True,
+        "windows_hello_enabled": False,
+        "windows_secure_desktop_enabled": True,
+        "macos_keychain_enabled": True,
+        "macos_touch_id_enabled": False,
+        "macos_gatekeeper_check_enabled": True,
+        "linux_kernel_keyring_enabled": True,
+        "linux_systemd_integration_enabled": True,
+        "linux_lsm_policy_enabled": True,
+    },
+}
+
 ENCRYPTED_SETTING_PREFIXES = ("clipboard_",)
+SECURITY_PROFILE_DESCRIPTIONS = {
+    "Standard": "Balanced security and usability.",
+    "Enhanced": "Extra protections with modest convenience impact.",
+    "Paranoid": "Maximum security with minimal convenience.",
+}
+SECURITY_PROFILE_KEYS = tuple(next(iter(SECURITY_PROFILES.values())).keys())
+SECURITY_SETTING_LABELS = {
+    "side_channel_protection_enabled": "Side-channel protection",
+    "cache_timing_protection": "Cache timing protection",
+    "normalize_crypto_timing": "Normalized crypto timing",
+    "random_crypto_delay": "Random crypto delay",
+    "random_delay_min_ms": "Minimum random crypto delay",
+    "random_delay_max_ms": "Maximum random crypto delay",
+    "memory_protection_enabled": "Memory protection",
+    "memory_lock_enabled": "Memory locking",
+    "memory_wipe_passes": "Memory wipe passes",
+    "memory_guard_pages_enabled": "Memory guard pages",
+    "memory_canary_enabled": "Memory canaries",
+    "activity_lock_timeout_seconds": "Auto-lock timeout",
+    "activity_lock_timeout_seconds_desktop": "Desktop auto-lock timeout",
+    "activity_lock_timeout_seconds_laptop": "Laptop auto-lock timeout",
+    "activity_sensitivity": "Activity sensitivity",
+    "panic_mode_enabled": "Panic mode",
+    "panic_hotkey": "Panic hotkey",
+    "panic_close_application": "Close application on panic",
+    "panic_stealth_mode": "Panic stealth mode",
+    "panic_show_fake_error": "Panic fake error",
+    "panic_launch_decoy": "Panic decoy launch",
+    "panic_redirect_url": "Panic redirect URL",
+    "panic_mouse_gesture_enabled": "Window-shake panic gesture",
+    "platform_secure_storage_enabled": "Platform secure storage",
+    "windows_credential_guard_enabled": "Windows Credential Guard",
+    "windows_hello_enabled": "Windows Hello",
+    "windows_secure_desktop_enabled": "Windows Secure Desktop",
+    "macos_keychain_enabled": "macOS Keychain Services",
+    "macos_touch_id_enabled": "macOS Touch ID",
+    "macos_gatekeeper_check_enabled": "macOS Gatekeeper checks",
+    "linux_kernel_keyring_enabled": "Linux kernel keyring",
+    "linux_systemd_integration_enabled": "Linux systemd integration",
+    "linux_lsm_policy_enabled": "Linux SELinux/AppArmor policy",
+}
 
 
 class ConfigManager:
@@ -62,7 +215,7 @@ class ConfigManager:
         os.makedirs(self.config_dir, exist_ok=True)
 
     def _default_settings(self) -> dict:
-        return {
+        settings = {
             "clipboard_timeout": 30,
             "clipboard_auto_clear": True,
             "clipboard_monitor_enabled": True,
@@ -75,7 +228,18 @@ class ConfigManager:
             "clipboard_profile": "Standard",
             "auto_lock_timeout": 5,
             "theme": "light",
+            "security_profile": "Standard",
+            "side_channel_max_compare_bytes": 4096,
+            "side_channel_max_search_bytes": 16384,
+            "random_delay_min_ms": 0,
+            "random_delay_max_ms": 0,
+            "activity_device_profile": "desktop",
+            "tray_enabled": True,
+            "minimize_to_tray": True,
+            "start_minimized_to_tray": False,
         }
+        settings.update(SECURITY_PROFILES["Standard"])
+        return settings
 
     def _load_meta_config(self):
         if os.path.exists(self.config_file):
@@ -130,8 +294,60 @@ class ConfigManager:
         except (TypeError, ValueError):
             return default
 
+    @staticmethod
+    def _as_bool(value: Any) -> bool:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.lower() in {"1", "true", "yes", "on"}
+        return bool(value)
+
+    @staticmethod
+    def _coerce_int(value: Any, default: int = 0) -> int:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+
     def set(self, key: str, value: Any):
+        old_value = self.settings.get(key)
         self.settings[key] = value
+        try:
+            self.validate_settings(self.settings)
+            self._persist_setting(key, value)
+            event_bus.publish("SettingChanged", {"key": key})
+        except Exception:
+            if old_value is None and key in self.settings:
+                self.settings.pop(key, None)
+            else:
+                self.settings[key] = old_value
+            raise
+
+    def set_many(self, values: dict, *, source: str = "settings") -> list[str]:
+        old_settings = dict(self.settings)
+        candidate = dict(self.settings)
+        candidate.update(values)
+        warnings = self.validate_settings(candidate)
+        transaction_started = False
+        try:
+            self.settings = candidate
+            if self._db_helper and hasattr(self._db_helper, "begin_transaction"):
+                self._db_helper.begin_transaction()
+                transaction_started = True
+            for key, value in values.items():
+                self._persist_setting(key, value)
+                event_bus.publish("SettingChanged", {"key": key, "source": source})
+            if transaction_started:
+                self._db_helper.commit_transaction()
+            event_bus.publish("SettingsSaved", {"source": source, "keys": sorted(values.keys()), "warnings": warnings})
+            return warnings
+        except Exception:
+            if transaction_started:
+                self._db_helper.rollback_transaction()
+            self.settings = old_settings
+            raise
+
+    def _persist_setting(self, key: str, value: Any):
         if key == "db_path":
             self.db_path = value
             self._save_meta_config()
@@ -190,9 +406,184 @@ class ConfigManager:
     def apply_clipboard_profile(self, profile_name: str):
         if profile_name not in CLIPBOARD_PRESETS:
             raise ValueError(f"Unknown clipboard profile: {profile_name}")
-        for key, value in CLIPBOARD_PRESETS[profile_name].items():
-            self.set(key, value)
-        self.set("clipboard_profile", profile_name)
+        values = dict(CLIPBOARD_PRESETS[profile_name])
+        values["clipboard_profile"] = profile_name
+        return self.set_many(values, source="clipboard_profile")
+
+    def get_security_settings(self) -> dict:
+        keys = {
+            "security_profile",
+            "side_channel_protection_enabled",
+            "cache_timing_protection",
+            "normalize_crypto_timing",
+            "random_crypto_delay",
+            "random_delay_min_ms",
+            "random_delay_max_ms",
+            "side_channel_max_compare_bytes",
+            "side_channel_max_search_bytes",
+            "memory_protection_enabled",
+            "memory_lock_enabled",
+            "memory_wipe_passes",
+            "memory_guard_pages_enabled",
+            "memory_canary_enabled",
+            "activity_lock_timeout_seconds",
+            "activity_lock_timeout_seconds_desktop",
+            "activity_lock_timeout_seconds_laptop",
+            "activity_sensitivity",
+            "activity_device_profile",
+            "panic_mode_enabled",
+            "panic_hotkey",
+            "panic_close_application",
+            "panic_stealth_mode",
+            "panic_show_fake_error",
+            "panic_fake_error_message",
+            "panic_launch_decoy",
+            "panic_decoy_command",
+            "panic_redirect_url",
+            "panic_mouse_gesture_enabled",
+            "tray_enabled",
+            "minimize_to_tray",
+            "start_minimized_to_tray",
+            "platform_secure_storage_enabled",
+            "windows_credential_guard_enabled",
+            "windows_hello_enabled",
+            "windows_secure_desktop_enabled",
+            "macos_keychain_enabled",
+            "macos_touch_id_enabled",
+            "macos_gatekeeper_check_enabled",
+            "linux_kernel_keyring_enabled",
+            "linux_systemd_integration_enabled",
+            "linux_lsm_policy_enabled",
+        }
+        return {key: self.get(key) for key in keys}
+
+    def preview_security_profile(self, profile_name: str) -> dict:
+        if profile_name not in SECURITY_PROFILES:
+            raise ValueError(f"Unknown security profile: {profile_name}")
+        candidate = dict(self.settings)
+        candidate.update(SECURITY_PROFILES[profile_name])
+        candidate["security_profile"] = profile_name
+        warnings = self.validate_settings(candidate)
+        changes = []
+        for key in ("security_profile", *SECURITY_PROFILE_KEYS):
+            old_value = self.settings.get(key)
+            new_value = candidate.get(key)
+            if old_value != new_value:
+                changes.append(
+                    {
+                        "key": key,
+                        "label": SECURITY_SETTING_LABELS.get(key, key),
+                        "old": old_value,
+                        "new": new_value,
+                    }
+                )
+        return {
+            "profile": profile_name,
+            "description": SECURITY_PROFILE_DESCRIPTIONS.get(profile_name, ""),
+            "changes": changes,
+            "warnings": warnings,
+        }
+
+    def explain_security_profile_change(self, profile_name: str) -> str:
+        preview = self.preview_security_profile(profile_name)
+        lines = [f"{preview['profile']}: {preview['description']}"]
+        if preview["changes"]:
+            lines.append("Changes:")
+            for change in preview["changes"]:
+                lines.append(f"- {change['label']}: {change['old']} -> {change['new']}")
+        else:
+            lines.append("No setting changes are needed.")
+        if preview["warnings"]:
+            lines.append("Warnings:")
+            lines.extend(f"- {warning}" for warning in preview["warnings"])
+        return "\n".join(lines)
+
+    def apply_security_profile(self, profile_name: str):
+        preview = self.preview_security_profile(profile_name)
+        values = dict(SECURITY_PROFILES[profile_name])
+        values["security_profile"] = profile_name
+        warnings = self.set_many(values, source="security_profile")
+        event_bus.publish(
+            "ConfigChanged",
+            {
+                "source": "security_profile",
+                "profile": profile_name,
+                "changes": preview["changes"],
+                "warnings": warnings,
+            },
+        )
+        return preview
+
+    def validate_security_settings(self, settings: Optional[dict] = None) -> list[str]:
+        return self.validate_settings(settings or self.settings)
+
+    def validate_settings(self, settings: Optional[dict] = None) -> list[str]:
+        settings = settings or self.settings
+        warnings = []
+        timeout = self._coerce_int(settings.get("activity_lock_timeout_seconds", 300), 300)
+        if timeout < 60 or timeout > 8 * 60 * 60:
+            raise ValueError("activity_lock_timeout_seconds must be between 60 and 28800 seconds")
+        for key in ("activity_lock_timeout_seconds_desktop", "activity_lock_timeout_seconds_laptop"):
+            device_timeout = self._coerce_int(settings.get(key, timeout), timeout)
+            if device_timeout < 60 or device_timeout > 8 * 60 * 60:
+                raise ValueError(f"{key} must be between 60 and 28800 seconds")
+        if settings.get("security_profile", "Standard") not in SECURITY_PROFILES:
+            raise ValueError("security_profile must be Standard, Enhanced, or Paranoid")
+        if settings.get("activity_sensitivity", "medium") not in {"low", "medium", "high"}:
+            raise ValueError("activity_sensitivity must be low, medium, or high")
+        wipe_passes = self._coerce_int(settings.get("memory_wipe_passes", 1), 1)
+        if wipe_passes < 1 or wipe_passes > 7:
+            raise ValueError("memory_wipe_passes must be between 1 and 7")
+        if not self._as_bool(settings.get("side_channel_protection_enabled", True)):
+            warnings.append("Side-channel protection is disabled.")
+        if not self._as_bool(settings.get("cache_timing_protection", True)):
+            warnings.append("Cache timing protection is disabled.")
+        if not self._as_bool(settings.get("memory_protection_enabled", True)):
+            warnings.append("Memory protection is disabled.")
+        if not self._as_bool(settings.get("side_channel_protection_enabled", True)) and self._as_bool(settings.get("cache_timing_protection", True)):
+            raise ValueError("cache timing protection requires side-channel protection")
+        if not self._as_bool(settings.get("memory_protection_enabled", True)) and (
+            self._as_bool(settings.get("memory_lock_enabled", True))
+            or self._as_bool(settings.get("memory_guard_pages_enabled", True))
+            or self._as_bool(settings.get("memory_canary_enabled", True))
+        ):
+            raise ValueError("memory sub-protections require memory protection")
+        if not self._as_bool(settings.get("tray_enabled", True)) and self._as_bool(settings.get("start_minimized_to_tray", False)):
+            raise ValueError("start minimized to tray requires tray integration")
+        if self._as_bool(settings.get("random_crypto_delay", False)):
+            min_delay = self._coerce_int(settings.get("random_delay_min_ms", 0), 0)
+            max_delay = self._coerce_int(settings.get("random_delay_max_ms", 0), 0)
+            if min_delay < 0 or max_delay < min_delay or max_delay > 250:
+                raise ValueError("random crypto delay must be 0..250 ms and max >= min")
+        if not self._as_bool(settings.get("clipboard_auto_clear", True)):
+            warnings.append("Clipboard auto-clear is disabled.")
+        if not self._as_bool(settings.get("panic_mode_enabled", True)):
+            warnings.append("Panic mode is disabled.")
+        if not self._as_bool(settings.get("platform_secure_storage_enabled", True)):
+            warnings.append("Platform secure storage is disabled.")
+        warnings.extend(self.get_non_default_warnings(settings))
+        return warnings
+
+    def get_non_default_warnings(self, settings: Optional[dict] = None) -> list[str]:
+        settings = settings or self.settings
+        defaults = self._default_settings()
+        warnings = []
+        watched_keys = {
+            "side_channel_protection_enabled",
+            "cache_timing_protection",
+            "memory_protection_enabled",
+            "memory_wipe_passes",
+            "activity_lock_timeout_seconds",
+            "panic_mode_enabled",
+            "platform_secure_storage_enabled",
+            "clipboard_auto_clear",
+            "clipboard_timeout",
+        }
+        for key in sorted(watched_keys):
+            if settings.get(key) != defaults.get(key):
+                label = SECURITY_SETTING_LABELS.get(key, key)
+                warnings.append(f"{label} differs from the secure default.")
+        return warnings
 
     def _should_encrypt_setting(self, key: str) -> bool:
         return key.startswith(ENCRYPTED_SETTING_PREFIXES)

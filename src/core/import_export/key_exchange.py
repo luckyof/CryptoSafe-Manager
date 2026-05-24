@@ -12,6 +12,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec, rsa
 
 from core.events import event_bus
+from core.security.side_channel_protection import constant_time_compare
 
 
 QR_PAYLOAD_VERSION = "1.0"
@@ -52,7 +53,7 @@ class QRCodeValidationError(ValueError):
 
 
 class KeyExchangeService:
-    """Sprint 6 key exchange and QR payload service."""
+    """Сервис обмена ключами и QR-полезной нагрузки для Sprint 6."""
 
     def __init__(self, db_connection=None, bus=event_bus):
         self.db = db_connection
@@ -333,12 +334,12 @@ class KeyExchangeService:
                 data = base64.b64decode(chunk["data"], validate=True)
             except Exception as exc:
                 raise QRCodeValidationError("Malformed QR chunk.") from exc
-            if hashlib.sha256(data).hexdigest() != chunk.get("chunk_checksum"):
+            if not constant_time_compare(hashlib.sha256(data).hexdigest(), chunk.get("chunk_checksum") or ""):
                 raise QRCodeValidationError("QR chunk checksum mismatch.")
             payload_id = payload_id or chunk.get("payload_id")
             payload_checksum = payload_checksum or chunk.get("payload_checksum")
             total = total or int(chunk.get("chunk_total", 0))
-            if chunk.get("payload_id") != payload_id or chunk.get("payload_checksum") != payload_checksum:
+            if not constant_time_compare(chunk.get("payload_id") or "", payload_id or "") or not constant_time_compare(chunk.get("payload_checksum") or "", payload_checksum or ""):
                 raise QRCodeValidationError("QR chunks belong to different payloads.")
             parsed_chunks.append((int(chunk["chunk_index"]), data))
 
@@ -352,7 +353,7 @@ class KeyExchangeService:
             canonical = zlib.decompress(compressed)
         except Exception as exc:
             raise QRCodeValidationError("QR payload decompression failed.") from exc
-        if hashlib.sha256(canonical).hexdigest() != payload_checksum:
+        if not constant_time_compare(hashlib.sha256(canonical).hexdigest(), payload_checksum or ""):
             raise QRCodeValidationError("QR payload checksum mismatch.")
         try:
             payload = json.loads(canonical.decode("utf-8"))
@@ -424,11 +425,11 @@ class KeyExchangeService:
                 raise QRCodeValidationError("Public key fingerprint mismatch.")
         elif payload["type"] == "encrypted_entry":
             raw = base64.b64decode(str(payload.get("data", "")).encode("ascii"), validate=True)
-            if hashlib.sha256(raw).hexdigest() != payload.get("data_sha256"):
+            if not constant_time_compare(hashlib.sha256(raw).hexdigest(), payload.get("data_sha256") or ""):
                 raise QRCodeValidationError("Encrypted entry payload checksum mismatch.")
         elif payload["type"] == "share_link":
             url = str(payload.get("url", ""))
-            if hashlib.sha256(url.encode("utf-8")).hexdigest() != payload.get("url_sha256"):
+            if not constant_time_compare(hashlib.sha256(url.encode("utf-8")).hexdigest(), payload.get("url_sha256") or ""):
                 raise QRCodeValidationError("Share link checksum mismatch.")
         if mark_seen:
             self._seen_nonces.add(nonce)

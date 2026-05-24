@@ -4,12 +4,13 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from core.events import event_bus
+from core.security.side_channel_protection import constant_time_compare
 
 ZERO_HASH = "0" * 64
 
 
 class AuditLogVerifier:
-    """Проверка подписей и hash-chain журнала аудита Sprint 5."""
+    """Проверка подписей и цепочки хэшей журнала аудита Sprint 5."""
 
     def __init__(self, db_helper, signer, bus=event_bus):
         self.db = db_helper
@@ -57,7 +58,7 @@ class AuditLogVerifier:
 
             entry_bytes = self._to_bytes(entry_data)
             computed_hash = hashlib.sha256(entry_bytes).hexdigest()
-            if computed_hash != entry_hash:
+            if not constant_time_compare(computed_hash, entry_hash):
                 self._mark_invalid(result, sequence_number, "hash mismatch")
                 continue
 
@@ -71,7 +72,7 @@ class AuditLogVerifier:
                 self._mark_invalid(result, sequence_number, "invalid signature")
                 continue
 
-            if previous_hash is not None and previous_hash_field != previous_hash:
+            if previous_hash is not None and not constant_time_compare(previous_hash_field or "", previous_hash):
                 result["chain_breaks"].append(
                     {
                         "sequence": sequence_number,

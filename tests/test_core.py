@@ -237,7 +237,7 @@ def test_memory_zeroing():
 # TEST-8: Тесты на устойчивость к timing-атакам (HASH-3, TEST-3)
 
 def test_constant_time_comparison():
-    """TEST-3: Проверка constant-time сравнения.
+    """TEST-3: Проверка сравнения с постоянным временем выполнения.
     
     Тест проверяет, что secrets.compare_digest используется для сравнения.
     Полное тестирование timing-атак требует специализированного оборудования.
@@ -253,7 +253,7 @@ def test_constant_time_comparison():
     assert isinstance(result, tuple)
 
 
-# TEST-9: Integration test смены пароля (CHANGE-1..4, TEST-5)
+# TEST-9: Интеграционный тест смены пароля (CHANGE-1..4, TEST-5)
 
 def test_password_change_integration(tmp_path):
     """TEST-5: Полная интеграционная проверка смены пароля."""
@@ -437,7 +437,7 @@ def test_idle_expired():
     # Время простоя должно увеличиться
     assert later_idle > initial_idle
     
-    # is_idle_expired вернет False, так как 60 секунд ещё не прошло
+    # is_idle_expired вернёт False, так как 60 секунд ещё не прошло
     # но мы проверяем, что механизм отслеживания работает
     assert auth.session.get_idle_time() >= 0.05
     
@@ -458,7 +458,7 @@ def test_auto_lock_on_minimize():
     assert auth.session.auto_lock_on_minimize is True
 
 
-# TEST-12: Тесты KeyManager с auto-lock (FUTURE-3)
+# TEST-12: Тесты KeyManager с авто-блокировкой (FUTURE-3)
 
 def test_key_manager_auto_lock_timer(temp_db):
     """Тест таймера авто-блокировки в KeyManager (FUTURE-3)."""

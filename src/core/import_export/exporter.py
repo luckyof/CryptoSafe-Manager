@@ -69,18 +69,25 @@ class VaultExporter:
         self.db = db_connection or getattr(entry_manager, "db", None)
         self.key_manager = getattr(entry_manager, "key_manager", None)
         self.bus = bus
+        self._panic_interrupted = False
         self.json_handler = NativeJSONFormatHandler()
         self.csv_handler = CSVFormatHandler()
         self.password_manager_handler = PasswordManagerFormatHandler()
+        if hasattr(self.bus, "subscribe"):
+            self.bus.subscribe("PanicModeActivated", self._handle_panic_interrupt)
 
     def export(self, options: Optional[ExportOptions] = None) -> ExportResult:
         options = options or ExportOptions()
+        self._panic_interrupted = False
         self._validate_options(options)
 
         try:
+            self._check_panic_interrupt()
             entries = self._collect_entries(options.entry_ids)
+            self._check_panic_interrupt()
             filtered_entries = [self._filter_entry(entry, options) for entry in entries]
             payload_bytes = self._serialize_payload(filtered_entries, options)
+            self._check_panic_interrupt()
             metadata = self._metadata(options, len(filtered_entries), payload_bytes)
 
             if options.compression:
@@ -97,6 +104,7 @@ class VaultExporter:
                     raise ValueError("Plaintext export requires allow_plaintext=True.")
                 content = payload_bytes
                 encrypted = False
+            self._check_panic_interrupt()
 
             metadata["estimated_peak_bytes"] = max(len(payload_bytes), len(content))
             metadata["memory_budget_bytes"] = max(1, len(content) * 2)
@@ -150,6 +158,13 @@ class VaultExporter:
         query_options = options or ExportOptions()
         query_options.entry_ids = selected_ids
         return self.export(query_options)
+
+    def _handle_panic_interrupt(self, event=None):
+        self._panic_interrupted = True
+
+    def _check_panic_interrupt(self):
+        if self._panic_interrupted:
+            raise RuntimeError("Operation interrupted by panic mode.")
 
     def _validate_options(self, options: ExportOptions):
         if options.format not in SUPPORTED_FORMATS:
@@ -448,7 +463,7 @@ class VaultExporter:
                 for index in range(len(value)):
                     value[index] = 0
                 return True
-            # bytes в Python неизменяемые; очищаем временную копию, чтобы вызывающий код мог использовать общий API.
+            # Тип bytes в Python неизменяемый; очищаем временную копию, чтобы вызывающий код мог использовать общий API.
             shadow = bytearray(value)
             for index in range(len(shadow)):
                 shadow[index] = 0

@@ -383,7 +383,7 @@ class TestPasswordGenerator:
         gen = PasswordGenerator()
         password = gen.generate()
 
-        assert len(password) == 16  # Default length
+        assert len(password) == 16  # Длина по умолчанию
         assert len(password) >= 8
 
     def test_generate_custom_length(self):
@@ -462,7 +462,7 @@ class TestPasswordGenerator:
         assert score >= 4
 
     def test_generate_10000_passwords(self):
-        """TEST-4: Генерация 10,000 паролей — проверка уникальности и compliance."""
+        """TEST-4: Генерация 10,000 паролей — проверка уникальности и соответствия требованиям."""
         gen = PasswordGenerator()
         gen.clear_history()
 
@@ -505,7 +505,7 @@ class TestSearchAndFilter:
     """Тесты поиска и фильтрации (SEARCH-1 — SEARCH-3)."""
 
     def test_search_by_title(self, entry_manager):
-        """SEARCH-1: Поиск по title."""
+        """SEARCH-1: Поиск по названию."""
         entry_manager.create_entry({
             "title": "Google Account",
             "username": "user@gmail.com",
@@ -531,7 +531,7 @@ class TestSearchAndFilter:
         assert results[0]["title"] == "Google Account"
 
     def test_search_by_username(self, entry_manager):
-        """SEARCH-1: Поиск по username."""
+        """SEARCH-1: Поиск по имени пользователя."""
         entry_manager.create_entry({
             "title": "Test Entry",
             "username": "john.doe@example.com",
@@ -546,7 +546,7 @@ class TestSearchAndFilter:
         assert len(results) == 1
 
     def test_search_field_filter(self, entry_manager):
-        """SEARCH-1: Field-specific фильтр."""
+        """SEARCH-1: Фильтр по конкретному полю."""
         entry_manager.create_entry({
             "title": "Work Email",
             "username": "user@work.com",
@@ -572,7 +572,7 @@ class TestSearchAndFilter:
         assert results[0]["category"] == "Work"
 
     def test_search_typo_tolerance(self, entry_manager):
-        """SEARCH-1: Fuzzy matching with typo tolerance."""
+        """SEARCH-1: Нечёткое сопоставление с устойчивостью к опечаткам."""
         entry_manager.create_entry({
             "title": "Github Account",
             "username": "dev@example.com",

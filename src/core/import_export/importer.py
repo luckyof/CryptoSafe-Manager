@@ -17,6 +17,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 from core.events import event_bus
+from core.security.side_channel_protection import constant_time_compare
 
 from .exporter import DEFAULT_PBKDF2_ITERATIONS, EXPORT_AAD, VaultExporter
 from .formats import CSVFormatSpec, FormatValidationError, NativeExportFormatSpec
@@ -95,9 +96,12 @@ class VaultImporter:
         self.entry_manager = entry_manager
         self.db = db_connection or getattr(entry_manager, "db", None)
         self.bus = bus
+        self._panic_interrupted = False
         self.native_spec = NativeExportFormatSpec()
         self.csv_spec = CSVFormatSpec()
         self.last_error_report: Optional[ImportErrorReport] = None
+        if hasattr(self.bus, "subscribe"):
+            self.bus.subscribe("PanicModeActivated", self._handle_panic_interrupt)
 
     def import_from_file(self, path: str, options: Optional[ImportOptions] = None) -> ImportResult:
         file_path = Path(path)
@@ -111,6 +115,7 @@ class VaultImporter:
         filename: Optional[str] = None,
     ) -> ImportResult:
         options = options or ImportOptions()
+        self._panic_interrupted = False
         self._validate_options(options, content)
         deadline = time.monotonic() + float(options.timeout_seconds)
         checksum = hashlib.sha256(content).hexdigest()
@@ -118,10 +123,13 @@ class VaultImporter:
         self.last_error_report = None
 
         try:
+            self._check_panic_interrupt()
             self._check_timeout(deadline)
             raw_entries = self._parse_entries(content, detected_format, options, deadline)
+            self._check_panic_interrupt()
             self._check_timeout(deadline)
             preview = self._validate_and_sanitize_entries(raw_entries)
+            self._check_panic_interrupt()
             self._check_timeout(deadline)
             duplicates = self._find_duplicates(preview.entries)
             preview.duplicates.extend(duplicates)
@@ -143,6 +151,7 @@ class VaultImporter:
                         preview.entries, options, duplicates, checksum
                     )
                 skipped += skipped_entries
+            self._check_panic_interrupt()
 
             result = ImportResult(
                 format=detected_format,
@@ -168,6 +177,13 @@ class VaultImporter:
             self._record_failed_history(detected_format, checksum, len(content), exc)
             self._publish_failure(detected_format, exc)
             raise
+
+    def _handle_panic_interrupt(self, event=None):
+        self._panic_interrupted = True
+
+    def _check_panic_interrupt(self):
+        if self._panic_interrupted:
+            raise RuntimeError("Operation interrupted by panic mode.")
 
     def build_error_report(
         self,
@@ -289,7 +305,7 @@ class VaultImporter:
             finally:
                 VaultExporter._clear_bytearray(key)
 
-        if hashlib.sha256(plaintext).hexdigest() != package["integrity"]["hash"]:
+        if not constant_time_compare(hashlib.sha256(plaintext).hexdigest(), package["integrity"]["hash"]):
             raise ImportValidationError("Payload integrity hash mismatch.")
 
         if package.get("metadata", {}).get("compression") == "gzip":
@@ -626,7 +642,7 @@ class VaultImporter:
             checkpoint = json.loads(path.read_text(encoding="utf-8"))
         except Exception as exc:
             raise ImportValidationError("Import checkpoint is corrupted.") from exc
-        if checkpoint.get("checksum") != checksum:
+        if not constant_time_compare(checkpoint.get("checksum") or "", checksum):
             raise ImportValidationError("Import checkpoint belongs to a different source file.")
         return set(checkpoint.get("completed_fingerprints") or [])
 
@@ -660,7 +676,7 @@ class VaultImporter:
             checkpoint = json.loads(path.read_text(encoding="utf-8"))
         except Exception:
             return
-        if checkpoint.get("checksum") == checksum:
+        if constant_time_compare(checkpoint.get("checksum") or "", checksum):
             checkpoint["completed"] = True
             checkpoint["completed_at"] = time.time()
             path.write_text(json.dumps(checkpoint, ensure_ascii=False, sort_keys=True), encoding="utf-8")
@@ -675,7 +691,7 @@ class VaultImporter:
             checkpoint = json.loads(path.read_text(encoding="utf-8"))
         except Exception:
             return False
-        return checkpoint.get("checksum") == checksum and bool(checkpoint.get("completed_fingerprints"))
+        return constant_time_compare(checkpoint.get("checksum") or "", checksum) and bool(checkpoint.get("completed_fingerprints"))
 
     def _clear_vault_entries(self):
         if not self.db:

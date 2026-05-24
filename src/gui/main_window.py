@@ -2,6 +2,8 @@ import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
 import os
 import logging
+import subprocess
+import webbrowser
 from datetime import datetime, timezone
 
 from .widgets.secure_table import SecureTable
@@ -15,6 +17,8 @@ from .dialogs.entry_dialog import EntryDialog
 from .dialogs.export_dialog import ExportDialog
 from .dialogs.import_dialog import ImportDialog
 from .dialogs.sharing_dialog import SharingDialog
+from .tray_manager import TrayManager
+from .ux import COMMON_SHORTCUTS, ToolTip, friendly_error_message, security_state_color
 
 from core.config import ConfigManager
 from core.state_manager import state_manager
@@ -26,6 +30,7 @@ from core.vault.entry_manager import EntryManager
 from core.vault.encryption_service import AES256GCMService
 from core.vault.password_generator import PasswordStrength
 from core.clipboard import ClipboardMonitor, ClipboardService
+from core.security import ActivityMonitor, PanicMode, PlatformSecurityManager
 
 logger = logging.getLogger("MainWindow")
 
@@ -44,7 +49,32 @@ class MainWindow(tk.Tk):
         self.entry_manager = None
         self.clipboard_service = ClipboardService(config=self.app_config, state=state_manager)
         self.clipboard_monitor = None
+        self.activity_monitor = ActivityMonitor(
+            self._schedule_auto_lock,
+            config=self.app_config.get_security_settings(),
+            is_locked_callback=lambda: state_manager.is_locked,
+        )
+        self.panic_mode = PanicMode(config=self.app_config.get_security_settings())
+        self.panic_mode.register_handler(self._schedule_panic_response)
+        self.platform_security = PlatformSecurityManager(config=self.app_config.get_security_settings())
+        self.platform_security.detect_capabilities()
+        self.tray_manager = TrayManager(
+            self,
+            self.app_config,
+            lock_callback=lambda: self.lock_application("tray"),
+            unlock_callback=self.show_window_from_tray,
+            show_callback=self.show_window_from_tray,
+            quick_search_callback=self.quick_search_from_tray,
+            clear_clipboard_callback=lambda: self.clipboard_service.clear_clipboard("tray"),
+            panic_callback=lambda: self.activate_panic_mode("tray"),
+            settings_callback=self.show_settings,
+            exit_callback=self.exit_application,
+        )
         self._clipboard_warning_shown = False
+        self._lock_in_progress = False
+        self._hidden_to_tray = False
+        self._loading_entries = False
+        self._last_entries_snapshot = []
 
         self.create_toolbar()
         self.create_search_area()
@@ -52,6 +82,7 @@ class MainWindow(tk.Tk):
         self.create_menu()
         self.create_status_bar()
         self.setup_clipboard_ui()
+        self.setup_tray()
 
         if not defer_startup:
             self.after(100, self.startup_sequence)
@@ -90,7 +121,7 @@ class MainWindow(tk.Tk):
             self.app_config.set("db_path", db_path)
             self.app_config.attach_database(self.db)
 
-            self.key_manager = KeyManager(self.db)
+            self.key_manager = KeyManager(self.db, self.app_config.get_security_settings())
             if not self.key_manager.setup_new_vault(password):
                 return False
             self.app_config.attach_key_manager(self.key_manager)
@@ -107,9 +138,9 @@ class MainWindow(tk.Tk):
         try:
             self.db = DatabaseHelper(self.app_config.db_path)
             self.app_config.attach_database(self.db)
-            self.key_manager = KeyManager(self.db)
+            self.key_manager = KeyManager(self.db, self.app_config.get_security_settings())
 
-            login = LoginDialog(self, self.key_manager)
+            login = LoginDialog(self, self.key_manager, secure_desktop=self.platform_security.should_use_secure_desktop())
             if login.success:
                 self.app_config.attach_key_manager(self.key_manager)
                 self.encryption_service = AES256GCMService()
@@ -126,9 +157,12 @@ class MainWindow(tk.Tk):
 
     def on_login_success(self):
         self.audit = AuditManager(self.db, key_manager=self.key_manager)
+        self.update_security_status(False)
         self.status_label.config(text="Статус: Разблокировано")
+        self.tray_manager.update_security_state(False)
         event_bus.publish("UserLoggedIn", data={"user": "default_user"})
         self.start_clipboard_monitor()
+        self.start_activity_monitor()
         self.load_entries()
 
     def load_entries(self, search_query: str = "", filters=None):
@@ -141,45 +175,70 @@ class MainWindow(tk.Tk):
             if filters:
                 data = self._apply_demo_filters(data, filters)
 
-            self.table.load_data(data)
+            self._last_entries_snapshot = list(data)
+            self._load_entries_into_table(data)
             self._update_search_categories(data)
             self.update_status(f"Записей: {len(data)}")
         except Exception as e:
-            logger.error(f"Load entries error: {e}")
-            messagebox.showerror("Ошибка", f"Не удалось загрузить записи:\n{e}")
+            logger.exception("Load entries error")
+            self.show_friendly_error(e, "load entries")
+            return
 
     def on_minimize_event(self, event):
-        if self.key_manager:
-            self.key_manager.on_minimize()
+        self.record_focus_change(False)
+        if event.widget is self and self.app_config.get_bool("minimize_to_tray", True):
+            self.hide_to_tray()
+        elif event.widget is self and self.key_manager and not state_manager.is_locked:
+            self._schedule_auto_lock("minimize")
 
     def check_inactivity(self):
         if self.key_manager and not state_manager.is_locked:
-            timeout = self.app_config.get("auto_lock_timeout", 60)
-            if state_manager.check_inactivity(timeout):
-                self.lock_application()
+            if self.activity_monitor.should_lock():
+                self._schedule_auto_lock("fallback_timer")
             else:
                 self.key_manager.touch()
 
         self.after(self.auto_lock_check_interval, self.check_inactivity)
 
-    def lock_application(self):
+    def lock_application(self, reason: str = "manual"):
+        if self._lock_in_progress or state_manager.is_locked:
+            return
+        self._lock_in_progress = True
         logger.info("Locking application...")
-        self.clipboard_service.clear_clipboard("lock")
-        self.key_manager.lock()
+        self.stop_activity_monitor()
+        self.clipboard_service.clear_clipboard(reason)
+        if self.key_manager:
+            self.key_manager.lock()
         state_manager.logout()
+        self.tray_manager.update_security_state(True)
+        event_bus.publish("VaultLocked", data={"reason": reason})
+        self.update_security_status(True)
 
         self.status_label.config(text="Статус: ЗАБЛОКИРОВАНО")
         self.table.load_data([])
+        self._show_lock_overlay()
 
-        login = LoginDialog(self, self.key_manager)
+        login = LoginDialog(self, self.key_manager, secure_desktop=self.platform_security.should_use_secure_desktop())
         if login.success:
+            self._hide_lock_overlay()
             state_manager.login("default_user")
+            event_bus.publish("VaultUnlocked", data={"reason": "reauthentication"})
             self.on_login_success()
         else:
             self.on_close()
+        self._lock_in_progress = False
 
     def on_close(self):
+        if self.app_config.get_bool("minimize_to_tray", True) and self.tray_manager.state.running:
+            self.hide_to_tray()
+            return
+        self.exit_application()
+
+    def exit_application(self):
         logger.info("Closing application...")
+        self.stop_activity_monitor()
+        if self.tray_manager:
+            self.tray_manager.stop()
         if self.clipboard_monitor:
             self.clipboard_monitor.stop()
         self.clipboard_service.shutdown()
@@ -210,6 +269,24 @@ class MainWindow(tk.Tk):
         ttk.Button(toolbar, text="Копировать логин", command=self.copy_username).pack(side=tk.LEFT, padx=2)
         ttk.Button(toolbar, text="📋 Копировать пароль", command=self.copy_password).pack(side=tk.LEFT, padx=2)
 
+        self._apply_toolbar_accessibility(toolbar)
+
+    def _apply_toolbar_accessibility(self, toolbar):
+        tooltips = [
+            "Add entry (Ctrl+N)",
+            "Edit selected entry (Ctrl+E)",
+            "Move selected entries to trash (Delete)",
+            "Show or hide selected passwords (Ctrl+Shift+P)",
+            "Export vault data",
+            "Import vault data",
+            "Share selected entry securely",
+            "Copy selected username (Ctrl+U)",
+            "Copy selected password (Ctrl+C)",
+        ]
+        buttons = [child for child in toolbar.winfo_children() if isinstance(child, ttk.Button)]
+        for button, tooltip in zip(buttons, tooltips):
+            ToolTip(button, tooltip)
+
     def create_search_area(self):
         self.search_widget = SearchWidget(self, on_search=self.on_search)
         self.search_widget.pack(fill=tk.X, padx=10, pady=(0, 5))
@@ -224,12 +301,36 @@ class MainWindow(tk.Tk):
         self.table = SecureTable(self)
         self.table.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
 
-        self.bind_all("<Button-1>", lambda e: state_manager.update_activity())
-        self.bind_all("<Key>", lambda e: state_manager.update_activity())
+        self.bind_all("<Button-1>", lambda e: self.record_user_activity("mouse"))
+        self.bind_all("<Motion>", lambda e: self.record_user_activity("mouse"))
+        self.bind_all("<Key>", lambda e: self.record_user_activity("keyboard"))
+        self.bind_all("<FocusIn>", lambda e: self.record_focus_change(True))
+        self.bind_all("<FocusOut>", lambda e: self.record_focus_change(False))
         self.bind_all("<Control-Shift-P>", lambda e: self.toggle_password_visibility())
+        self.bind_all(self.panic_mode.hotkey_sequence(), lambda e: self.activate_panic_mode("hotkey"))
+        self._bind_common_shortcuts()
+        self.bind("<Configure>", self._on_window_configure)
 
         self.table.set_context_callback(self._on_table_action)
         self.table.set_password_reveal_callback(self._load_password_for_table)
+
+    def _bind_common_shortcuts(self):
+        bindings = {
+            "add_entry": lambda event: self.add_entry(),
+            "edit_entry": lambda event: self.edit_selected(),
+            "delete_entry": lambda event: self.delete_selected(),
+            "copy_username": lambda event: self.copy_username(),
+            "copy_password": lambda event: self.copy_password(),
+            "search": lambda event: self.focus_search(),
+            "lock": lambda event: self.lock_application("shortcut"),
+            "settings": lambda event: self.show_settings(),
+        }
+        for action, callback in bindings.items():
+            self.bind_all(COMMON_SHORTCUTS[action], callback)
+
+    def focus_search(self):
+        if hasattr(self.search_widget, "focus_search"):
+            self.search_widget.focus_search()
 
     def setup_clipboard_ui(self):
         self.clipboard_service.add_observer(lambda status: self.after(0, self._on_clipboard_status, status))
@@ -239,6 +340,117 @@ class MainWindow(tk.Tk):
         event_bus.subscribe("ClipboardCopyBlockChanged", lambda event: self.after(0, self._on_clipboard_block_changed, event.data))
         event_bus.subscribe("ClipboardError", lambda event: self.after(0, self._on_clipboard_error, event.data))
         self.after(1000, self.refresh_clipboard_status)
+
+    def setup_tray(self):
+        if not self.app_config.get_bool("tray_enabled", True):
+            return
+        self.tray_manager.start()
+        self.tray_manager.update_security_state(state_manager.is_locked)
+        if self.app_config.get_bool("start_minimized_to_tray", False):
+            self.after(250, self.hide_to_tray)
+
+    def apply_tray_setting(self):
+        if self.app_config.get_bool("tray_enabled", True):
+            self.tray_manager.start()
+            self.tray_manager.update_security_state(state_manager.is_locked)
+        else:
+            self.tray_manager.stop()
+
+    def apply_panic_setting(self):
+        self.panic_mode.config = self.app_config.get_security_settings()
+
+    def apply_platform_security_setting(self):
+        self.platform_security.config = self.app_config.get_security_settings()
+        self.platform_security.detect_capabilities()
+
+    def hide_to_tray(self):
+        if self._hidden_to_tray or not self.tray_manager.state.running:
+            return
+        self._hidden_to_tray = True
+        self.tray_manager.hide_window()
+        self.tray_manager.notify("CryptoSafe Manager", "Running in the background.")
+
+    def show_window_from_tray(self):
+        if self.panic_mode.activated:
+            self.recover_from_panic("tray")
+            return
+        self._hidden_to_tray = False
+        self.tray_manager.show_window()
+
+    def quick_search_from_tray(self):
+        self.show_window_from_tray()
+        query = simpledialog.askstring("Quick search", "Search vault:", parent=self)
+        if query is not None:
+            self.load_entries(search_query=query)
+
+    def activate_panic_mode(self, method: str = "manual"):
+        self.panic_mode.activate(method)
+
+    def recover_from_panic(self, method: str = "manual"):
+        self.panic_mode.recover(method)
+        self._hidden_to_tray = False
+        self.tray_manager.show_window()
+        if self.key_manager and state_manager.is_locked:
+            self.lock_application("panic_recovery")
+
+    def _schedule_panic_response(self, method: str):
+        try:
+            self.after(0, lambda: self._perform_panic_response(method))
+        except Exception:
+            self._perform_panic_response(method)
+
+    def _perform_panic_response(self, method: str):
+        self.clipboard_service.handle_panic_mode("panic_mode")
+        self.stop_activity_monitor()
+        if self.key_manager:
+            self.key_manager.lock()
+        state_manager.logout()
+        self._destroy_child_windows()
+        self.table.load_data([])
+        self.tray_manager.update_security_state(True)
+        event_bus.publish("VaultLocked", data={"reason": "panic_mode"})
+        self._execute_panic_stealth_actions(method)
+        if self.panic_mode.close_application:
+            self.exit_application()
+        else:
+            self.withdraw()
+
+    def _destroy_child_windows(self):
+        for child in list(self.winfo_children()):
+            if isinstance(child, tk.Toplevel):
+                try:
+                    child.destroy()
+                except Exception:
+                    pass
+        self._hide_lock_overlay()
+
+    def _execute_panic_stealth_actions(self, method: str):
+        if not self.panic_mode.stealth_mode:
+            return
+        if self.app_config.get_bool("panic_show_fake_error", False):
+            message = self.app_config.get(
+                "panic_fake_error_message",
+                "The application has encountered an unexpected error.",
+            )
+            self.after(50, lambda: messagebox.showerror("Application Error", message))
+        command = str(self.app_config.get("panic_decoy_command", "") or "").strip()
+        if self.app_config.get_bool("panic_launch_decoy", False) and command:
+            try:
+                subprocess.Popen(command, shell=True)
+            except Exception as exc:
+                logger.warning("Failed to launch panic decoy: %s", exc)
+        redirect_url = str(self.app_config.get("panic_redirect_url", "") or "").strip()
+        if redirect_url:
+            try:
+                webbrowser.open(redirect_url)
+            except Exception as exc:
+                logger.warning("Failed to open panic redirect URL: %s", exc)
+
+    def _on_window_configure(self, event):
+        if event.widget is not self or state_manager.is_locked:
+            return
+        if self.panic_mode.record_window_position(event.x, event.y):
+            self.activate_panic_mode("mouse_gesture")
 
     def start_clipboard_monitor(self):
         if self.clipboard_monitor or not self.app_config.get("clipboard_monitor_enabled", True):
@@ -253,6 +465,63 @@ class MainWindow(tk.Tk):
         elif self.clipboard_monitor:
             self.clipboard_monitor.stop()
             self.clipboard_monitor = None
+
+    def start_activity_monitor(self):
+        self.activity_monitor.update_config(self.app_config.get_security_settings())
+        self.activity_monitor.start_monitoring()
+
+    def stop_activity_monitor(self):
+        self.activity_monitor.stop_monitoring()
+
+    def apply_activity_monitor_setting(self):
+        self.activity_monitor.update_config(self.app_config.get_security_settings())
+        if not state_manager.is_locked:
+            self.start_activity_monitor()
+
+    def record_user_activity(self, source: str = "application"):
+        state_manager.update_activity()
+        if source == "keyboard":
+            self.activity_monitor.record_keyboard_activity()
+        elif source == "mouse":
+            self.activity_monitor.record_mouse_activity()
+        else:
+            self.activity_monitor.record_activity(source)
+
+    def record_focus_change(self, focused: bool):
+        self.activity_monitor.record_focus_change(focused)
+
+    def _schedule_auto_lock(self, reason: str = "inactivity"):
+        try:
+            self.after(0, lambda: self.lock_application(reason))
+        except Exception as exc:
+            logger.error("Failed to schedule auto-lock: %s", exc)
+
+    def _show_lock_overlay(self):
+        if getattr(self, "_lock_overlay", None):
+            return
+        overlay = tk.Toplevel(self)
+        overlay.title("CryptoSafe Locked")
+        overlay.transient(self)
+        overlay.resizable(False, False)
+        overlay.protocol("WM_DELETE_WINDOW", lambda: None)
+        frame = ttk.Frame(overlay, padding=20)
+        frame.pack(fill=tk.BOTH, expand=True)
+        ttk.Label(frame, text="Vault locked").pack()
+        ttk.Label(frame, text="Master password is required to continue.").pack(pady=(6, 0))
+        overlay.update_idletasks()
+        x = self.winfo_rootx() + max(0, (self.winfo_width() - overlay.winfo_width()) // 2)
+        y = self.winfo_rooty() + max(0, (self.winfo_height() - overlay.winfo_height()) // 2)
+        overlay.geometry(f"+{x}+{y}")
+        self._lock_overlay = overlay
+
+    def _hide_lock_overlay(self):
+        overlay = getattr(self, "_lock_overlay", None)
+        if overlay:
+            try:
+                overlay.destroy()
+            except Exception:
+                pass
+        self._lock_overlay = None
 
     def _apply_demo_filters(self, entries, filters):
         """Применить дополнительные GUI-фильтры к уже найденным записям."""
@@ -330,7 +599,7 @@ class MainWindow(tk.Tk):
         file_menu.add_separator()
         file_menu.add_command(label="Заблокировать", command=self.lock_application)
         file_menu.add_separator()
-        file_menu.add_command(label="Выход", command=self.on_close)
+        file_menu.add_command(label="Выход", command=self.exit_application)
         menubar.add_cascade(label="Файл", menu=file_menu)
 
         edit_menu = tk.Menu(menubar, tearoff=0)
@@ -353,6 +622,10 @@ class MainWindow(tk.Tk):
         self.config(menu=menubar)
 
     def create_status_bar(self):
+        style = ttk.Style(self)
+        style.configure("SecurityLocked.TLabel", foreground=security_state_color("locked"))
+        style.configure("SecurityUnlocked.TLabel", foreground=security_state_color("unlocked"))
+        style.configure("SecurityWarning.TLabel", foreground=security_state_color("warning"))
         self.status_bar = ttk.Frame(self)
         self.status_bar.pack(side=tk.BOTTOM, fill=tk.X)
 
@@ -362,6 +635,48 @@ class MainWindow(tk.Tk):
         self.clipboard_label = ttk.Label(self.status_bar, text="Буфер: --", relief=tk.SUNKEN)
         self.clipboard_label.pack(side=tk.RIGHT, fill=tk.X)
         self.clipboard_label.bind("<Button-1>", lambda event: self.show_clipboard_preview())
+        self.status_label.configure(style="SecurityLocked.TLabel")
+        self.progress = ttk.Progressbar(self.status_bar, mode="indeterminate", length=96)
+
+    def update_security_status(self, locked: bool):
+        if not hasattr(self, "status_label"):
+            return
+        if locked:
+            self.status_label.configure(text="Status: locked", style="SecurityLocked.TLabel")
+        else:
+            self.status_label.configure(text="Status: unlocked", style="SecurityUnlocked.TLabel")
+
+    def show_progress(self, message: str):
+        self._loading_entries = True
+        self.update_status(message)
+        if hasattr(self, "progress") and not self.progress.winfo_ismapped():
+            self.progress.pack(side=tk.LEFT, padx=(6, 0))
+            self.progress.start(12)
+
+    def hide_progress(self):
+        self._loading_entries = False
+        if hasattr(self, "progress") and self.progress.winfo_ismapped():
+            self.progress.stop()
+            self.progress.pack_forget()
+
+    def _load_entries_into_table(self, data):
+        if len(data) < 250:
+            self.table.load_data(data)
+            self.hide_progress()
+            return
+
+        self.show_progress(f"Loading {len(data)} entries...")
+        self.table.load_data_incremental(
+            data,
+            batch_size=100,
+            schedule=self.after,
+            on_done=lambda total: (self.hide_progress(), self.update_status(f"Entries: {total}")),
+        )
+
+    def show_friendly_error(self, error: Exception, context: str):
+        message = friendly_error_message(error, context)
+        self.update_status(message.title)
+        messagebox.showerror(message.title, message.format(), parent=self)
 
     def add_entry(self):
         EntryDialog(self, on_save=self._on_entry_save)
@@ -560,6 +875,7 @@ class MainWindow(tk.Tk):
         self.after(1000, self.refresh_clipboard_status)
 
     def _on_clipboard_status(self, status):
+        self.tray_manager.update_clipboard_status(status)
         if status.active:
             remaining = "never" if status.remaining_seconds <= 0 else f"{int(status.remaining_seconds)}s"
             self.clipboard_label.config(

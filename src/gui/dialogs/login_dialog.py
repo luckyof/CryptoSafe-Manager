@@ -2,7 +2,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 
 class LoginDialog(tk.Toplevel):
-    def __init__(self, parent, key_manager):
+    def __init__(self, parent, key_manager, secure_desktop: bool = False):
         super().__init__(parent)
         self.title("Вход в хранилище")
         self.geometry("350x200")
@@ -10,15 +10,26 @@ class LoginDialog(tk.Toplevel):
         
         self.key_manager = key_manager
         self.success = False
+        self.secure_desktop = secure_desktop
         
         self.transient(parent)
         self.grab_set()
+        self._apply_secure_prompt_mode()
         
         self.create_widgets()
         self.center_window(parent)
         
         self.protocol("WM_DELETE_WINDOW", self.on_cancel)
         self.wait_window(self)
+
+    def _apply_secure_prompt_mode(self):
+        if not self.secure_desktop:
+            return
+        try:
+            self.attributes("-topmost", True)
+            self.focus_force()
+        except tk.TclError:
+            pass
 
     def create_widgets(self):
         frame = ttk.Frame(self, padding=20)
@@ -67,8 +78,8 @@ class LoginDialog(tk.Toplevel):
                 self.password_entry.delete(0, tk.END)
                 self.password_entry.focus()
         except PermissionError as e:
-             # Это исключение выбрасывается, если unlock обнаружил блокировку внутри
-             # Но мы проверили это выше. Однако на случай гонки условий:
+             # Это исключение выбрасывается, если unlock обнаружил блокировку внутри.
+             # Мы проверили это выше, но оставляем обработку на случай гонки условий:
              remaining = self.key_manager.auth.get_remaining_lockout_time()
              messagebox.showwarning("Блокировка", f"Вход заблокирован.\nПодождите {remaining} сек.", parent=self)
         finally:
