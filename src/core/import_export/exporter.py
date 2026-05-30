@@ -29,6 +29,7 @@ SUPPORTED_FORMATS = {
     "encrypted_json",
     "csv",
     "bitwarden_json",
+    "bitwarden_encrypted_json",
     "lastpass_csv",
     "lastpass_json",
     "password_manager_json",
@@ -91,12 +92,17 @@ class VaultExporter:
             metadata = self._metadata(options, len(filtered_entries), payload_bytes)
 
             if options.compression:
+                if options.format == "bitwarden_encrypted_json":
+                    raise ValueError("Bitwarden encrypted JSON does not support CryptoSafe GZIP compression.")
                 payload_bytes = gzip.compress(payload_bytes)
                 metadata["compression"] = "gzip"
             else:
                 metadata["compression"] = None
 
-            if options.encrypt:
+            if options.format == "bitwarden_encrypted_json":
+                content = payload_bytes
+                encrypted = True
+            elif options.encrypt:
                 content = self._build_encrypted_export(payload_bytes, metadata, options)
                 encrypted = True
             else:
@@ -173,6 +179,10 @@ class VaultExporter:
             raise ValueError("encryption_strength must be 128 or 256")
         if options.format == "encrypted_json":
             options.encrypt = True
+        if options.format == "bitwarden_encrypted_json":
+            options.encrypt = True
+            if options.recipient_public_key:
+                raise ValueError("Bitwarden encrypted JSON supports password-based encryption only.")
         if options.master_password:
             options.master_password_confirmed = self._verify_master_password(options.master_password)
         if options.require_master_password_confirmation and not options.master_password_confirmed:
@@ -215,6 +225,12 @@ class VaultExporter:
             return self.csv_handler.serialize(entries, self._format_fields(options))
         if options.format in {"bitwarden_json", "password_manager_json"}:
             return self.password_manager_handler.serialize_bitwarden(entries, self._format_fields(options))
+        if options.format == "bitwarden_encrypted_json":
+            return self.password_manager_handler.serialize_bitwarden_encrypted(
+                entries,
+                options.encryption_password or "",
+                self._format_fields(options),
+            )
         if options.format == "lastpass_csv":
             return self.password_manager_handler.serialize_lastpass_csv(entries, self._format_fields(options))
         if options.format == "lastpass_json":

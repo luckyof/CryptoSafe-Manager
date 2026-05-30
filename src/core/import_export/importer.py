@@ -13,8 +13,11 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.hazmat.primitives.kdf.hkdf import HKDFExpand
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+from cryptography.hazmat.primitives.padding import PKCS7
 
 from core.events import event_bus
 from core.security.side_channel_protection import constant_time_compare
@@ -25,6 +28,7 @@ from .formats import CSVFormatSpec, FormatValidationError, NativeExportFormatSpe
 
 MAX_IMPORT_FILE_SIZE = 10 * 1024 * 1024
 DEFAULT_IMPORT_TIMEOUT_SECONDS = 30.0
+BITWARDEN_KDF_TYPE_PBKDF2_SHA256 = 0
 IMPORT_MODES = {"dry-run", "merge", "replace"}
 DUPLICATE_POLICIES = {"skip", "update", "rename", "error"}
 MALICIOUS_PATTERNS = [
@@ -224,6 +228,8 @@ class VaultImporter:
             return "encrypted_json"
         if sample.startswith(b"{") and b"cryptosafe_share" in sample:
             return "shared_entry"
+        if sample.startswith(b"{") and b"passwordProtected" in sample and b"encKeyValidation_DO_NOT_EDIT" in sample:
+            return "bitwarden_encrypted_json"
         if sample.startswith(b"{") or sample.startswith(b"["):
             try:
                 parsed = json.loads(sample.decode("utf-8-sig", errors="ignore"))
@@ -257,6 +263,8 @@ class VaultImporter:
     ) -> List[Dict[str, Any]]:
         if detected_format == "encrypted_json":
             return self._parse_native_encrypted_json(content, options, deadline)
+        if detected_format == "bitwarden_encrypted_json":
+            return self._parse_bitwarden_encrypted_json(content, options)
         if detected_format == "bitwarden_json":
             return self._parse_bitwarden_json(content)
         if detected_format == "lastpass_csv":
@@ -407,9 +415,42 @@ class VaultImporter:
         parsed = self._load_json_object(content)
         if not isinstance(parsed, dict) or not isinstance(parsed.get("items"), list):
             raise ImportValidationError("Bitwarden JSON must contain items.")
-        return self._bitwarden_items_to_entries(parsed["items"])
+        return self._bitwarden_payload_to_entries(parsed)
 
-    def _bitwarden_items_to_entries(self, items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _parse_bitwarden_encrypted_json(self, content: bytes, options: ImportOptions) -> List[Dict[str, Any]]:
+        if not options.encryption_password:
+            raise ImportValidationError("Bitwarden encrypted JSON import requires encryption_password.")
+        package = self._load_json_object(content)
+        if not isinstance(package, dict):
+            raise ImportValidationError("Bitwarden encrypted JSON must be an object.")
+        if package.get("encrypted") is not True or package.get("passwordProtected") is not True:
+            raise ImportValidationError("Bitwarden encrypted JSON must be password-protected.")
+        if int(package.get("kdfType", -1)) != BITWARDEN_KDF_TYPE_PBKDF2_SHA256:
+            raise ImportValidationError("Only Bitwarden PBKDF2-SHA256 encrypted exports are supported.")
+        salt = package.get("salt")
+        try:
+            iterations = int(package.get("kdfIterations"))
+        except (TypeError, ValueError) as exc:
+            raise ImportValidationError("Invalid Bitwarden KDF iteration count.") from exc
+        key = self._derive_bitwarden_key(options.encryption_password, salt, iterations)
+        self._decrypt_bitwarden_string(package.get("encKeyValidation_DO_NOT_EDIT"), key, "encKeyValidation_DO_NOT_EDIT")
+        plaintext = self._decrypt_bitwarden_string(package.get("data"), key, "data")
+        payload = self._load_json_object(plaintext)
+        if not isinstance(payload, dict) or not isinstance(payload.get("items"), list):
+            raise ImportValidationError("Decrypted Bitwarden payload does not contain items.")
+        return self._bitwarden_payload_to_entries(payload)
+
+    def _bitwarden_payload_to_entries(self, payload: Dict[str, Any]) -> List[Dict[str, Any]]:
+        folders = payload.get("folders") or []
+        folder_map = {
+            str(folder.get("id")): str(folder.get("name", ""))
+            for folder in folders
+            if isinstance(folder, dict) and folder.get("id")
+        }
+        return self._bitwarden_items_to_entries(payload["items"], folder_map)
+
+    def _bitwarden_items_to_entries(self, items: List[Dict[str, Any]], folder_map: Optional[Dict[str, str]] = None) -> List[Dict[str, Any]]:
+        folder_map = folder_map or {}
         entries = []
         for item in items:
             login = item.get("login") or {}
@@ -424,11 +465,50 @@ class VaultImporter:
                     "password": login.get("password", ""),
                     "url": url,
                     "notes": item.get("notes", ""),
-                    "category": item.get("folderId") or "",
+                    "category": folder_map.get(str(item.get("folderId")), item.get("folderId") or ""),
                     "tags": [],
                 }
             )
         return entries
+
+    @staticmethod
+    def _derive_bitwarden_key(password: str, salt: str, iterations: int) -> bytes:
+        if not isinstance(salt, str) or not salt:
+            raise ImportValidationError("Bitwarden encrypted JSON is missing salt.")
+        master_key = PBKDF2HMAC(
+            algorithm=hashes.SHA256(),
+            length=32,
+            salt=salt.encode("utf-8"),
+            iterations=iterations,
+        ).derive(password.encode("utf-8"))
+        enc_key = HKDFExpand(algorithm=hashes.SHA256(), length=32, info=b"enc").derive(master_key)
+        mac_key = HKDFExpand(algorithm=hashes.SHA256(), length=32, info=b"mac").derive(master_key)
+        return enc_key + mac_key
+
+    @staticmethod
+    def _decrypt_bitwarden_string(value: Any, key: bytes, field_name: str) -> bytes:
+        if not isinstance(value, str) or not value.startswith("2."):
+            raise ImportValidationError(f"{field_name} is not a supported Bitwarden EncString.")
+        try:
+            encrypted = value.split(".", 1)[1]
+            iv_text, ciphertext_text, mac_text = encrypted.split("|")
+            iv = base64.b64decode(iv_text, validate=True)
+            ciphertext = base64.b64decode(ciphertext_text, validate=True)
+            mac = base64.b64decode(mac_text, validate=True)
+        except Exception as exc:
+            raise ImportValidationError(f"{field_name} is malformed.") from exc
+        enc_key = key[:32]
+        mac_key = key[32:]
+        expected_mac = hmac.digest(mac_key, iv + ciphertext, "sha256")
+        if not hmac.compare_digest(expected_mac, mac):
+            raise ImportValidationError("Bitwarden encrypted JSON password or integrity check failed.")
+        decryptor = Cipher(algorithms.AES(enc_key), modes.CBC(iv)).decryptor()
+        padded = decryptor.update(ciphertext) + decryptor.finalize()
+        try:
+            unpadder = PKCS7(128).unpadder()
+            return unpadder.update(padded) + unpadder.finalize()
+        except ValueError as exc:
+            raise ImportValidationError("Bitwarden encrypted JSON padding validation failed.") from exc
 
     def _parse_csv(self, content: bytes, lastpass: bool = False) -> List[Dict[str, Any]]:
         text = content.decode("utf-8-sig")

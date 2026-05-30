@@ -21,6 +21,17 @@ class EventBus:
         self._subscribers[event_name].append(callback)
         self.logger.debug(f"Подписка на событие: {event_name}")
 
+    def unsubscribe(self, event_name: str, callback: Callable):
+        callbacks = self._subscribers.get(event_name)
+        if not callbacks:
+            return
+        try:
+            callbacks.remove(callback)
+        except ValueError:
+            return
+        if not callbacks:
+            self._subscribers.pop(event_name, None)
+
     def publish(self, event_name: str, data: Any = None):
         event = Event(name=event_name, data=data)
         self.logger.info(f"Событие опубликовано: {event_name}")

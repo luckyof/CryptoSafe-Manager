@@ -2,11 +2,15 @@ import base64
 import json
 import os
 import sys
+import hmac
 
 import pytest
 from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.hazmat.primitives.kdf.hkdf import HKDFExpand
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+from cryptography.hazmat.primitives.padding import PKCS7
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
 
@@ -63,6 +67,27 @@ def _decrypt_native_export(content: bytes, password: str):
         iterations=DEFAULT_PBKDF2_ITERATIONS,
     ).derive(password.encode("utf-8"))
     return AESGCM(key).decrypt(nonce, ciphertext, EXPORT_AAD)
+
+
+def _decrypt_bitwarden_string(value: str, password: str, salt: str, iterations: int) -> bytes:
+    _kind, encrypted = value.split(".", 1)
+    iv_text, ciphertext_text, mac_text = encrypted.split("|")
+    iv = base64.b64decode(iv_text)
+    ciphertext = base64.b64decode(ciphertext_text)
+    mac = base64.b64decode(mac_text)
+    master_key = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=salt.encode("utf-8"),
+        iterations=iterations,
+    ).derive(password.encode("utf-8"))
+    enc_key = HKDFExpand(algorithm=hashes.SHA256(), length=32, info=b"enc").derive(master_key)
+    mac_key = HKDFExpand(algorithm=hashes.SHA256(), length=32, info=b"mac").derive(master_key)
+    assert hmac.compare_digest(hmac.digest(mac_key, iv + ciphertext, "sha256"), mac)
+    decryptor = Cipher(algorithms.AES(enc_key), modes.CBC(iv)).decryptor()
+    padded = decryptor.update(ciphertext) + decryptor.finalize()
+    unpadder = PKCS7(128).unpadder()
+    return unpadder.update(padded) + unpadder.finalize()
 
 
 def test_arc_1_schema(sprint6_vault):
@@ -144,6 +169,35 @@ def test_exp_1_plaintext_opt_in(sprint6_vault):
     text = result.content.decode("utf-8-sig")
     assert "title,username,password,url,category,tags" in text
     assert "primary account" not in text
+
+
+def test_exp_1_bitwarden_encrypted_json(sprint6_vault):
+    _, entry_manager, _, _ = sprint6_vault
+    result = VaultExporter(entry_manager).export(
+        ExportOptions(
+            format="bitwarden_encrypted_json",
+            encryption_password="bitwarden-export-passphrase",
+            master_password_confirmed=True,
+        )
+    )
+
+    package = json.loads(result.content.decode("utf-8"))
+    plaintext = _decrypt_bitwarden_string(
+        package["data"],
+        "bitwarden-export-passphrase",
+        package["salt"],
+        package["kdfIterations"],
+    )
+    payload = json.loads(plaintext.decode("utf-8"))
+
+    assert result.encrypted is True
+    assert package["encrypted"] is True
+    assert package["passwordProtected"] is True
+    assert package["kdfType"] == 0
+    assert package["data"].startswith("2.")
+    assert package["encKeyValidation_DO_NOT_EDIT"].startswith("2.")
+    assert payload["encrypted"] is False
+    assert {item["name"] for item in payload["items"]} == {"GitHub", "Bank"}
 
 
 def test_exp_4_master_confirm(sprint6_vault):

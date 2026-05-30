@@ -164,6 +164,29 @@ def test_imp_1_bw_lastpass(empty_vault):
     assert titles == {"BW Item", "LP Item"}
 
 
+def test_imp_1_bitwarden_encrypted_json(source_vault, empty_vault):
+    _, source_entries = source_vault
+    _, target_entries = empty_vault
+    exported = VaultExporter(source_entries).export(
+        ExportOptions(
+            format="bitwarden_encrypted_json",
+            encryption_password="bitwarden-passphrase",
+            master_password_confirmed=True,
+        )
+    )
+
+    result = VaultImporter(target_entries).import_from_bytes(
+        exported.content,
+        ImportOptions(mode="merge", encryption_password="bitwarden-passphrase"),
+    )
+    imported = target_entries.get_all_entries(include_decrypted_password=True)
+
+    assert result.imported_count == 1
+    assert result.format == "bitwarden_encrypted_json"
+    assert imported[0]["title"] == "GitHub"
+    assert imported[0]["password"] == "G1tHub_Pass!"
+
+
 def test_imp_2_duplicate_update(empty_vault):
     _, entry_manager = empty_vault
     importer = VaultImporter(entry_manager)

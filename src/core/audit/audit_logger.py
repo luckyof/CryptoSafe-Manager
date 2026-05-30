@@ -24,6 +24,8 @@ DEFAULT_PERIODIC_VERIFY_SECONDS = 24 * 60 * 60
 class AuditLogger:
     """Журнал аудита на базе событий с полями целостности Sprint 5."""
 
+    _global_sequence_lock = threading.Lock()
+
     EVENT_CATALOG = {
         "LoginSucceeded": ("INFO", "auth"),
         "LoginFailed": ("WARN", "auth"),
@@ -124,6 +126,8 @@ class AuditLogger:
         self._async_stop = threading.Event()
         self._async_worker = None
         self._periodic_verify_timer = None
+        self._closed = False
+        self._subscribed_buses = []
         self._periodic_verify_interval = float(
             getattr(db_helper, "periodic_verify_interval_seconds", DEFAULT_PERIODIC_VERIFY_SECONDS)
         )
@@ -191,11 +195,14 @@ class AuditLogger:
 
     def shutdown(self):
         """Остановить фоновую запись аудита."""
+        self._closed = True
+        self._unsubscribe()
         self._cancel_periodic_verify_timer()
         self.flush_async()
         self._async_stop.set()
         if self._async_worker:
             self._async_worker.join(timeout=1.0)
+            self._async_worker = None
 
     def log_security_attempt(self, attempt_type: str, details: Optional[Dict[str, Any]] = None) -> int:
         """Записать подозрительную попытку воздействия на аудит или права."""
@@ -216,9 +223,21 @@ class AuditLogger:
             for event_name in self.EVENT_CATALOG:
                 bus.subscribe(event_name, self._log_event_from_bus)
             bus.subscribe("EntryAdded", self._log_event_from_bus)
+            self._subscribed_buses.append(bus)
         logger.info("AuditLogger subscribed to security-relevant events")
 
+    def _unsubscribe(self):
+        for bus in self._subscribed_buses:
+            if not hasattr(bus, "unsubscribe"):
+                continue
+            for event_name in self.EVENT_CATALOG:
+                bus.unsubscribe(event_name, self._log_event_from_bus)
+            bus.unsubscribe("EntryAdded", self._log_event_from_bus)
+        self._subscribed_buses.clear()
+
     def _log_event_from_bus(self, event: Event):
+        if self._closed:
+            return
         if isinstance(event.data, dict) and event.data.get("audit_verification_event"):
             return
 
@@ -254,6 +273,8 @@ class AuditLogger:
         user_id: str = "default_user",
         entry_id: Optional[str] = None,
     ) -> int:
+        if self._closed:
+            return -1
         return self._write_event(event_type, severity, source, details, user_id, entry_id)
 
     def log_event_async(
@@ -265,7 +286,9 @@ class AuditLogger:
         user_id: str = "default_user",
         entry_id: Optional[str] = None,
     ) -> bool:
-        if not self._async_worker:
+        if self._closed:
+            return False
+        if not self._async_worker or not self._async_worker.is_alive():
             self.log_event(event_type, severity, source, details, user_id, entry_id)
             return True
         try:
@@ -294,9 +317,8 @@ class AuditLogger:
         if not hasattr(self.db, "fetchone"):
             return self._log_legacy_event(event_type, details, entry_id)
 
-        with self._sequence_lock:
-            sequence_number = self._next_sequence_number()
-            previous_hash = self._last_entry_hash()
+        with AuditLogger._global_sequence_lock:
+            sequence_number, previous_hash = self._next_chain_state()
             entry = {
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "event_type": event_type,
@@ -337,6 +359,7 @@ class AuditLogger:
                     public_key,
                 ),
             )
+            self._fallback_sequence = sequence_number
             self._fallback_last_hash = entry_hash
         return sequence_number
 
@@ -372,6 +395,23 @@ class AuditLogger:
 
     def _last_entry_hash(self) -> str:
         return self._fallback_last_hash
+
+    def _next_chain_state(self) -> tuple[int, str]:
+        if not hasattr(self.db, "fetchone"):
+            return self._next_sequence_number(), self._last_entry_hash()
+
+        row = self.db.fetchone(
+            """
+            SELECT sequence_number, entry_hash
+            FROM audit_log
+            WHERE sequence_number IS NOT NULL
+            ORDER BY sequence_number DESC
+            LIMIT 1
+            """
+        )
+        if row:
+            return int(row[0]) + 1, row[1] or ZERO_HASH
+        return 0, ZERO_HASH
 
     def _initialize_chain_state(self):
         if not hasattr(self.db, "fetchone"):

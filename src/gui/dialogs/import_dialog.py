@@ -44,7 +44,16 @@ class ImportDialog(tk.Toplevel):
         ttk.Combobox(
             settings,
             textvariable=self.format_var,
-            values=["", "encrypted_json", "csv", "bitwarden_json", "lastpass_csv", "json", "shared_entry"],
+            values=[
+                "",
+                "encrypted_json",
+                "csv",
+                "bitwarden_json",
+                "bitwarden_encrypted_json",
+                "lastpass_csv",
+                "json",
+                "shared_entry",
+            ],
             state="readonly",
             width=22,
         ).grid(row=0, column=1, sticky=tk.W, pady=3)

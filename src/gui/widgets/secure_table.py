@@ -184,11 +184,9 @@ class SecureTable(ttk.Treeview):
         return entry_id in self._visible_password_ids
 
     def _format_password(self, entry_id: str, password: str) -> str:
-        if not password:
-            return ""
         if self._is_password_visible_for_entry(entry_id):
             return password
-        return "•" * min(max(len(password), 8), 12)
+        return "\u2022" * 8
 
     def _toggle_icon(self, entry_id: str) -> str:
         return "🙈" if self._is_password_visible_for_entry(entry_id) else "👁"

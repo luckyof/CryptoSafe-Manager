@@ -27,6 +27,7 @@ class ExportDialog(tk.Toplevel):
         self.scope_var = tk.StringVar(value="selected" if self.selected_entry_ids else "full")
         self.output_path_var = tk.StringVar()
         self.password_var = tk.StringVar()
+        self.password_confirm_var = tk.StringVar()
         self.master_password_var = tk.StringVar()
         self.encrypt_var = tk.BooleanVar(value=True)
         self.allow_plaintext_var = tk.BooleanVar(value=False)
@@ -48,7 +49,14 @@ class ExportDialog(tk.Toplevel):
         format_box = ttk.Combobox(
             top,
             textvariable=self.format_var,
-            values=["encrypted_json", "csv", "bitwarden_json", "lastpass_csv", "lastpass_json"],
+            values=[
+                "encrypted_json",
+                "csv",
+                "bitwarden_json",
+                "bitwarden_encrypted_json",
+                "lastpass_csv",
+                "lastpass_json",
+            ],
             state="readonly",
             width=24,
         )
@@ -76,6 +84,8 @@ class ExportDialog(tk.Toplevel):
         ttk.Entry(security, textvariable=self.master_password_var, show="*").grid(row=0, column=1, sticky=tk.EW, pady=3)
         ttk.Label(security, text="Пароль экспорта").grid(row=1, column=0, sticky=tk.W, pady=3)
         ttk.Entry(security, textvariable=self.password_var, show="*").grid(row=1, column=1, sticky=tk.EW, pady=3)
+        ttk.Label(security, text="Повтор пароля экспорта").grid(row=2, column=0, sticky=tk.W, pady=3)
+        ttk.Entry(security, textvariable=self.password_confirm_var, show="*").grid(row=2, column=1, sticky=tk.EW, pady=3)
         security.columnconfigure(1, weight=1)
 
         fields = ttk.LabelFrame(root, text="Поля", padding=8)
@@ -122,10 +132,10 @@ class ExportDialog(tk.Toplevel):
         return None
 
     def _on_format_changed(self):
-        self.encrypt_var.set(self.format_var.get() == "encrypted_json")
+        self.encrypt_var.set(self.format_var.get() in {"encrypted_json", "bitwarden_encrypted_json"})
 
     def _choose_output_path(self):
-        ext = ".json" if self.format_var.get() != "csv" else ".csv"
+        ext = ".csv" if self.format_var.get() in {"csv", "lastpass_csv"} else ".json"
         path = filedialog.asksaveasfilename(parent=self, defaultextension=ext)
         if path:
             self.output_path_var.set(path)
@@ -160,6 +170,20 @@ class ExportDialog(tk.Toplevel):
             master_password=self.master_password_var.get() or None,
         )
 
+    def _validate_export_password(self) -> bool:
+        if not self.encrypt_var.get() and self.format_var.get() != "bitwarden_encrypted_json":
+            return True
+
+        password = self.password_var.get()
+        confirmation = self.password_confirm_var.get()
+        if not password:
+            messagebox.showerror("Экспорт", "Введите пароль экспорта.", parent=self)
+            return False
+        if password != confirmation:
+            messagebox.showerror("Экспорт", "Пароли экспорта не совпадают.", parent=self)
+            return False
+        return True
+
     def _preview(self):
         ids = self._selected_ids()
         count = len(ids) if ids is not None else len(self.entries_tree.get_children())
@@ -174,6 +198,8 @@ class ExportDialog(tk.Toplevel):
         path = self.output_path_var.get().strip()
         if not path:
             messagebox.showerror("Экспорт", "Выберите файл для сохранения.", parent=self)
+            return
+        if not self._validate_export_password():
             return
         try:
             result = VaultExporter(self.entry_manager).export_to_file(path, self._build_export_options())

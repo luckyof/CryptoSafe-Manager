@@ -156,6 +156,8 @@ class MainWindow(tk.Tk):
             self.quit()
 
     def on_login_success(self):
+        if self.audit and hasattr(self.audit, "shutdown"):
+            self.audit.shutdown()
         self.audit = AuditManager(self.db, key_manager=self.key_manager)
         self.update_security_status(False)
         self.status_label.config(text="Статус: Разблокировано")
