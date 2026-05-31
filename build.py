@@ -12,6 +12,8 @@ def main():
         "--noconfirm",
         "--onedir",
         "--windowed",
+        "--paths",
+        "src",
         "--name",
         "CryptoSafeManager",
         "run.py",

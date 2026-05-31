@@ -3,7 +3,7 @@
 
 a = Analysis(
     ['run.py'],
-    pathex=[],
+    pathex=['src'],
     binaries=[],
     datas=[],
     hiddenimports=[],
