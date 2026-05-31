@@ -7,8 +7,12 @@ pystray>=0.19.5
 pywin32>=306; sys_platform == "win32"
 pyobjc-framework-Cocoa>=9.0; sys_platform == "darwin"
 
-# Testing
+# Testing and coverage
 pytest>=7.0.0
+pytest-cov>=7.0.0
+
+# Packaging
+pyinstaller>=6.0.0
 
 # Optional: OS keychain integration
 # keyring>=23.0.0

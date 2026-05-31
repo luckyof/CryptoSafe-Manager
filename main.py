@@ -1,17 +1,14 @@
-
-import sys
 import os
+import sys
 
-# Добавляем путь к src, чтобы работали импорты
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), 'src')))
+# Добавляем src в путь импорта при запуске из корня проекта.
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "src")))
 
-from gui.main_window import MainWindow
 from core.config import ConfigManager
+from gui.main_window import MainWindow
+
 
 if __name__ == "__main__":
-    # 1. Инициализация менеджера конфигурации
     config = ConfigManager()
-    
-    # 2. Запуск главного окна с передачей конфига 
     app = MainWindow(config=config)
     app.mainloop()

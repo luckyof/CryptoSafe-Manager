@@ -1,0 +1,19 @@
+[run]
+source = src
+omit =
+    src/gui/*
+    src/gui/dialogs/*
+    src/gui/widgets/*
+    */__pycache__/*
+
+[report]
+show_missing = True
+skip_empty = True
+fail_under = 80
+exclude_lines =
+    pragma: no cover
+    if __name__ == .__main__.:
+    if TYPE_CHECKING:
+
+[html]
+directory = tests/report/html

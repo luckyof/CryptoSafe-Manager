@@ -17,7 +17,7 @@ CryptoSafe Manager призван предоставить пользовате�
 | 5 | Журнал аудита и целостность | Полноценный аудит действий, цифровая подпись записей аудита. |
 | 6 | Импорт/экспорт и безопасный обмен | Encrypted JSON/CSV/Bitwarden/LastPass, импорт с валидацией, secure sharing, key exchange и QR. |
 | 7 | Многопользовательность и блокировка | Поддержка нескольких профилей, централизованное состояние сессии, автоматическая блокировка при простое. |
-| 8 | Резервное копирование и финальная сборка | Резервные копии, восстановление, финальная упаковка и стабилизация релиза. |
+| 8 | Финальная интеграция и сборка | Интеграция, тестовый отчет, coverage, PyInstaller-сборка, документация и стабилизация релиза. |
 
 ## Архитектура (MVC)
 
@@ -58,7 +58,7 @@ CryptoSafe Manager призван предоставить пользовате�
 
 3. **Установите зависимости**
 
-   Проект использует внешние зависимости для криптографии, проверки мастер-пароля, буфера обмена, QR/key exchange и тестирования.
+   Проект использует внешние зависимости для криптографии, проверки мастер-пароля, буфера обмена, QR/key exchange, тестирования и финальной сборки.
 
    ```bash
    pip install -r requirements.txt
@@ -69,6 +69,8 @@ CryptoSafe Manager призван предоставить пользовате�
    - `argon2-cffi`
    - `cryptography`
    - `pytest`
+   - `pytest-cov`
+   - `pyinstaller`
    - `pyperclip`
    - `qrcode`
    - `Pillow`
@@ -80,6 +82,12 @@ CryptoSafe Manager призван предоставить пользовате�
    Для Linux-буфера обмена может потребоваться один из системных backend-пакетов: `wl-clipboard`, `xclip` или `xsel`.
 
 4. **Запустите приложение**
+
+   ```bash
+   python run.py
+   ```
+
+   Альтернативный запуск:
 
    ```bash
    python main.py
@@ -94,6 +102,14 @@ CryptoSafe Manager призван предоставить пользовате�
 ```bash
 pytest tests/
 ```
+
+Для запуска тестов с coverage и генерацией HTML-отчета Sprint 8:
+
+```bash
+pytest tests/ --cov=src --cov-report=term --cov-report=html:tests/report/html
+```
+
+Краткий отчет сохранен в `tests/report/summary.md`, HTML-отчет формируется в `tests/report/html/`.
 
 Для запуска только тестов Sprint 3:
 
@@ -140,6 +156,16 @@ pytest tests/test_sprint6_validation.py
 ```bash
 pytest tests/test_sprint7_security_framework.py
 ```
+
+### Финальная сборка
+
+Для сборки executable через PyInstaller выполните:
+
+```bash
+python build.py
+```
+
+Результат сборки находится в `dist/CryptoSafeManager/`. Готовый ZIP-архив для передачи расположен в `dist/CryptoSafeManager.zip`.
 
 ## Использование (1 спринт)
 
@@ -270,10 +296,44 @@ pytest tests/test_sprint6_database.py tests/test_sprint6_export.py tests/test_sp
 pytest tests/test_sprint7_security_framework.py
 ```
 
+## Состояние после Sprint 8
+
+К состоянию восьмого спринта проект подготовлен к финальной сдаче: добавлены артефакты тестового отчета, конфигурация coverage, документация пользователя и техническое описание, а также скрипты запуска и сборки.
+
+Основные результаты Sprint 8:
+
+- добавлен `run.py` для запуска приложения из исходного кода;
+- добавлен `build.py` и `CryptoSafeManager.spec` для сборки PyInstaller;
+- создана сборка `dist/CryptoSafeManager/` и архив `dist/CryptoSafeManager.zip`;
+- добавлен `.coveragerc` с политикой покрытия core/database слоя;
+- сформирован HTML-отчет покрытия в `tests/report/html/`;
+- добавлен краткий отчет `tests/report/summary.md`;
+- создана документация `docs/user_guide.md` и `docs/technical.md`;
+- добавлен шаблон отчета по фидбеку 5 пользователей `docs/user_feedback.md`;
+- выполнен cleanup `TODO/FIXME` в рабочих файлах;
+- добавлен тестовый cleanup SQLite-соединений через `tests/conftest.py` и `DatabaseHelper.close_all()`.
+
+Перед защитой Sprint 8 в `docs/user_feedback.md` нужно внести реальные результаты проверки с 5 пользователями: краткое резюме замечаний, принятые решения и ссылки на исправленные файлы.
+
+Финальная проверка Sprint 8:
+
+```bash
+pytest tests/ --cov=src --cov-report=term --cov-report=html:tests/report/html
+```
+
+Последний результат:
+
+```text
+259 passed, 1 skipped
+Coverage: 82.58%
+```
+
+На Windows после pytest может появляться сообщение очистки временной папки `pytest-current`; оно возникает после успешного завершения тестов и не меняет код возврата.
+
 ## Лицензия
 
 Проект распространяется под лицензией MIT. Подробности в файле LICENSE.
 
 ---
 
-**Примечание:** Данный `README.md` соответствует состоянию проекта после завершения **Спринта 7**. В последующих спринтах он будет дополнен информацией о резервном копировании, восстановлении, финальной сборке и стабилизации релиза.
+**Примечание:** Данный `README.md` сохраняет исходную структуру проекта и дополнен информацией о состоянии после завершения **Спринта 8**.

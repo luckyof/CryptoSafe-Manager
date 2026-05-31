@@ -3,18 +3,31 @@ import os
 import shutil
 import sqlite3
 import threading
+import atexit
+import weakref
 from contextlib import contextmanager
 
 logger = logging.getLogger("Database")
 
 DB_SCHEMA_VERSION = 7
+_OPEN_DATABASE_HELPERS = weakref.WeakSet()
+
+
+def _close_open_database_helpers():
+    DatabaseHelper.close_all()
+
+
+atexit.register(_close_open_database_helpers)
 
 
 class DatabaseHelper:
     def __init__(self, db_path: str):
         self.db_path = db_path
         self._local = threading.local()
+        self._connections = []
+        self._connections_lock = threading.RLock()
         self._audit_reads_allowed = False
+        _OPEN_DATABASE_HELPERS.add(self)
         self._initialize_db()
 
     def _get_connection(self) -> sqlite3.Connection:
@@ -26,6 +39,8 @@ class DatabaseHelper:
             self._local.connection.execute("PRAGMA temp_store = MEMORY")
             self._local.connection.execute("PRAGMA cache_size = -20000")
             self._local.explicit_transaction = False
+            with self._connections_lock:
+                self._connections.append(self._local.connection)
         return self._local.connection
 
     def _initialize_db(self):
@@ -672,3 +687,24 @@ class DatabaseHelper:
         if hasattr(self._local, "connection"):
             self._local.connection.close()
             del self._local.connection
+        with self._connections_lock:
+            for connection in list(self._connections):
+                try:
+                    connection.close()
+                except Exception:
+                    pass
+            self._connections.clear()
+
+    @classmethod
+    def close_all(cls):
+        for helper in list(_OPEN_DATABASE_HELPERS):
+            try:
+                helper.close()
+            except Exception:
+                pass
+
+    def __del__(self):
+        try:
+            self.close()
+        except Exception:
+            pass
