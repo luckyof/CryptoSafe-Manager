@@ -46,7 +46,7 @@ def test_arc_2_defaults(tmp_path, monkeypatch):
     assert settings["cache_timing_protection"] is True
     assert settings["memory_protection_enabled"] is True
     assert settings["panic_mode_enabled"] is True
-    assert settings["panic_hotkey"] == "Ctrl+Shift+Esc"
+    assert settings["panic_hotkey"] == "Ctrl+Alt+P"
     assert settings["panic_mouse_gesture_enabled"] is True
     assert settings["panic_close_application"] is False
     assert 60 <= settings["activity_lock_timeout_seconds"] <= 8 * 60 * 60
@@ -121,12 +121,12 @@ def test_cfg_3_validation(tmp_path, monkeypatch):
             }
         )
     except ValueError as exc:
-        assert "cache timing" in str(exc)
+        assert "cache-timing" in str(exc)
     else:
         raise AssertionError("insecure side-channel combination must be rejected")
 
     warnings = config.validate_settings({**config.settings, "clipboard_auto_clear": False})
-    assert any("Clipboard auto-clear is disabled" in warning for warning in warnings)
+    assert any("Автоочистка буфера обмена отключена" in warning for warning in warnings)
 
 
 def test_sc_1_compare():
@@ -445,14 +445,32 @@ def test_tray_4_restore():
 
 def test_panic_1_activation():
     bus = _EventRecorder()
-    panic = PanicMode({"panic_hotkey": "Ctrl+Shift+Esc", "panic_mouse_gesture_enabled": True}, bus=bus)
+    panic = PanicMode({"panic_hotkey": "Ctrl+Alt+P", "panic_mouse_gesture_enabled": True}, bus=bus)
 
-    assert panic.hotkey_sequence() == "<Control-Shift-Escape>"
+    assert panic.hotkey_sequence() == "<Control-Alt-p>"
     positions = [(0.0, 100), (0.1, 140), (0.2, 95), (0.3, 145), (0.4, 90), (0.5, 150)]
     detected = [panic.record_window_position(x, 10, now=now) for now, x in positions]
 
     assert detected[-1] is True
     assert "PanicMouseGestureDetected" in bus.names()
+
+
+def test_panic_1_realistic_window_shake():
+    panic = PanicMode({"panic_mouse_gesture_enabled": True}, bus=_EventRecorder())
+    positions = [(0.0, 420), (0.25, 470), (0.5, 430), (0.75, 475), (1.0, 435), (1.25, 480)]
+
+    detected = [panic.record_window_position(x, 10, now=now) for now, x in positions]
+
+    assert detected[-1] is True
+
+
+def test_panic_1_pointer_drag_gesture():
+    panic = PanicMode({"panic_mouse_gesture_enabled": True}, bus=_EventRecorder())
+    positions = [(0.0, 500), (0.2, 560), (0.4, 510), (0.6, 565)]
+
+    detected = [panic.record_pointer_position(x, 10, now=now) for now, x in positions]
+
+    assert detected[-1] is True
 
 
 def test_panic_2_handlers():

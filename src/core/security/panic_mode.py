@@ -20,6 +20,10 @@ class PanicMode:
         self._handlers: list[Callable[[str], None]] = []
         self._lock = threading.RLock()
         self._window_positions = deque(maxlen=8)
+        self._gesture_started_at: Optional[float] = None
+        self._gesture_last_x: Optional[int] = None
+        self._gesture_last_direction = 0
+        self._gesture_direction_changes = 0
         self.register_handler(self._wipe_secure_memory)
 
     def register_handler(self, handler: Callable[[str], None]):
@@ -72,7 +76,7 @@ class PanicMode:
         return self._config_bool("panic_stealth_mode", False)
 
     def hotkey_sequence(self) -> str:
-        hotkey = str(self._config_get("panic_hotkey", "Ctrl+Shift+Esc"))
+        hotkey = "Ctrl+Alt+P"
         tokens = [token.strip().lower() for token in hotkey.replace("+", " ").split() if token.strip()]
         mapping = {
             "ctrl": "Control",
@@ -82,18 +86,35 @@ class PanicMode:
             "esc": "Escape",
             "escape": "Escape",
         }
-        mapped = [mapping.get(token, token.capitalize()) for token in tokens]
-        return f"<{'-'.join(mapped)}>" if mapped else "<Control-Shift-Escape>"
+        mapped = [mapping.get(token, token.lower() if len(token) == 1 else token.capitalize()) for token in tokens]
+        return f"<{'-'.join(mapped)}>" if mapped else "<Control-Alt-p>"
 
     def record_window_position(self, x: int, y: int, now: Optional[float] = None) -> bool:
         if not self._config_bool("panic_mouse_gesture_enabled", True):
             return False
         now = time.monotonic() if now is None else now
-        self._window_positions.append((now, int(x), int(y)))
+        x = int(x)
+        y = int(y)
+        if self._window_positions:
+            _, last_x, last_y = self._window_positions[-1]
+            if abs(x - last_x) < 4 and abs(y - last_y) < 4:
+                return False
+        self._window_positions.append((now, x, y))
         if self._detect_shake():
             position_count = len(self._window_positions)
             self._window_positions.clear()
+            self._reset_pointer_gesture()
             self.bus.publish("PanicMouseGestureDetected", {"positions": position_count})
+            return True
+        return False
+
+    def record_pointer_position(self, x: int, y: int, now: Optional[float] = None) -> bool:
+        if not self._config_bool("panic_mouse_gesture_enabled", True):
+            return False
+        now = time.monotonic() if now is None else now
+        if self._detect_pointer_shake(int(x), now):
+            self._reset_pointer_gesture()
+            self.bus.publish("PanicMouseGestureDetected", {"positions": 0, "source": "pointer"})
             return True
         return False
 
@@ -142,20 +163,62 @@ class PanicMode:
         if len(self._window_positions) < 6:
             return False
         positions = list(self._window_positions)
-        if positions[-1][0] - positions[0][0] > 1.2:
+        if positions[-1][0] - positions[0][0] > 2.2:
             return False
 
         changes = 0
         previous_direction = 0
         for (_, prev_x, _), (_, cur_x, _) in zip(positions, positions[1:]):
             delta = cur_x - prev_x
-            if abs(delta) < 24:
+            if abs(delta) < 10:
                 continue
             direction = 1 if delta > 0 else -1
             if previous_direction and direction != previous_direction:
                 changes += 1
             previous_direction = direction
-        return changes >= 4
+        if changes >= 2:
+            return True
+
+        changes = 0
+        previous_direction = 0
+        for (_, _, prev_y), (_, _, cur_y) in zip(positions, positions[1:]):
+            delta = cur_y - prev_y
+            if abs(delta) < 10:
+                continue
+            direction = 1 if delta > 0 else -1
+            if previous_direction and direction != previous_direction:
+                changes += 1
+            previous_direction = direction
+        return changes >= 2
+
+    def _detect_pointer_shake(self, x: int, now: float) -> bool:
+        if self._gesture_started_at is None or self._gesture_last_x is None:
+            self._gesture_started_at = now
+            self._gesture_last_x = x
+            return False
+
+        if now - self._gesture_started_at > 2.0:
+            self._reset_pointer_gesture()
+            self._gesture_started_at = now
+            self._gesture_last_x = x
+            return False
+
+        delta = x - self._gesture_last_x
+        if abs(delta) < 12:
+            return False
+
+        direction = 1 if delta > 0 else -1
+        if self._gesture_last_direction and direction != self._gesture_last_direction:
+            self._gesture_direction_changes += 1
+        self._gesture_last_direction = direction
+        self._gesture_last_x = x
+        return self._gesture_direction_changes >= 2
+
+    def _reset_pointer_gesture(self):
+        self._gesture_started_at = None
+        self._gesture_last_x = None
+        self._gesture_last_direction = 0
+        self._gesture_direction_changes = 0
 
     def _config_get(self, key: str, default=None):
         if hasattr(self.config, "get"):

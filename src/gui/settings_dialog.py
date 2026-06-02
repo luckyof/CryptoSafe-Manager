@@ -23,6 +23,11 @@ SENSITIVITY_LABELS = {
     "medium": "Средняя",
     "high": "Высокая",
 }
+THEME_LABELS = {
+    "light": "Светлая",
+    "dark": "Тёмная",
+}
+PANIC_HOTKEY = "Ctrl+Alt+P"
 
 
 class SettingsDialog(tk.Toplevel):
@@ -32,7 +37,8 @@ class SettingsDialog(tk.Toplevel):
         self.config_manager = parent.app_config
         self._initial_security_profile = self.config_manager.get("security_profile", "Standard")
         self.title("Настройки")
-        self.geometry("520x460")
+        self.geometry("560x520")
+        self.minsize(500, 420)
 
         self._build_variables()
         self.create_widgets()
@@ -71,32 +77,58 @@ class SettingsDialog(tk.Toplevel):
         self.panic_close_app_var = tk.BooleanVar(value=self.config_manager.get_bool("panic_close_application", False))
         self.panic_stealth_var = tk.BooleanVar(value=self.config_manager.get_bool("panic_stealth_mode", False))
         self.panic_fake_error_var = tk.BooleanVar(value=self.config_manager.get_bool("panic_show_fake_error", False))
+        self.panic_hotkey_var = tk.StringVar(value=PANIC_HOTKEY)
+        self.theme_var = tk.StringVar(value=self._label(THEME_LABELS, self.config_manager.get("theme", "light")))
 
     def create_widgets(self):
         notebook = ttk.Notebook(self)
         notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
-        security_tab = ttk.Frame(notebook, padding=10)
+        security_tab, security_content = self._create_scrollable_tab(notebook)
         notebook.add(security_tab, text="Безопасность")
-        self._create_clipboard_settings(security_tab)
+        self._create_clipboard_settings(security_content)
 
         appearance_tab = ttk.Frame(notebook, padding=10)
         notebook.add(appearance_tab, text="Внешний вид")
         ttk.Label(appearance_tab, text="Тема:").pack(anchor=tk.W)
-        ttk.Combobox(appearance_tab, values=["Системная", "Светлая", "Тёмная"]).pack(anchor=tk.W, pady=5)
-
-        advanced_tab = ttk.Frame(notebook, padding=10)
-        notebook.add(advanced_tab, text="Дополнительно")
-        ttk.Label(
-            advanced_tab,
-            text="Список разрешённых приложений применяется будущими расширенными адаптерами.",
-            wraplength=460,
-        ).pack(anchor=tk.W)
+        ttk.Combobox(
+            appearance_tab,
+            textvariable=self.theme_var,
+            values=[THEME_LABELS[key] for key in ("light", "dark")],
+            state="readonly",
+        ).pack(anchor=tk.W, fill=tk.X, pady=5)
 
         footer = ttk.Frame(self)
         footer.pack(fill=tk.X, padx=10, pady=(0, 10))
         ttk.Button(footer, text="Сохранить", command=self.save).pack(side=tk.RIGHT, padx=4)
         ttk.Button(footer, text="Закрыть", command=self.destroy).pack(side=tk.RIGHT, padx=4)
+
+    def _create_scrollable_tab(self, notebook):
+        container = ttk.Frame(notebook)
+        canvas = tk.Canvas(container, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(container, orient=tk.VERTICAL, command=canvas.yview)
+        content = ttk.Frame(canvas, padding=10)
+        window_id = canvas.create_window((0, 0), window=content, anchor=tk.NW)
+
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        def update_scroll_region(_event=None):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        def update_content_width(event):
+            canvas.itemconfigure(window_id, width=event.width)
+
+        def on_mousewheel(event):
+            delta = -1 if event.delta > 0 else 1
+            canvas.yview_scroll(delta * 3, "units")
+
+        content.bind("<Configure>", update_scroll_region)
+        canvas.bind("<Configure>", update_content_width)
+        canvas.bind("<Enter>", lambda _event: canvas.bind_all("<MouseWheel>", on_mousewheel))
+        canvas.bind("<Leave>", lambda _event: canvas.unbind_all("<MouseWheel>"))
+        return container, content
 
     def _create_clipboard_settings(self, parent):
         ttk.Label(parent, text="Профиль буфера обмена:").pack(anchor=tk.W)
@@ -161,7 +193,7 @@ class SettingsDialog(tk.Toplevel):
 
         panic_box = ttk.LabelFrame(parent, text="Режим паники", padding=8)
         panic_box.pack(fill=tk.X, pady=(0, 10))
-        ttk.Label(panic_box, text=f"Горячая клавиша: {self.config_manager.get('panic_hotkey', 'Ctrl+Shift+Esc')}").pack(anchor=tk.W)
+        ttk.Label(panic_box, text=f"Горячая клавиша: {PANIC_HOTKEY}").pack(anchor=tk.W, pady=(0, 8))
         ttk.Checkbutton(panic_box, text="Включить режим паники", variable=self.panic_enabled_var).pack(anchor=tk.W)
         ttk.Checkbutton(panic_box, text="Включить жест встряхивания окна", variable=self.panic_mouse_gesture_var).pack(anchor=tk.W)
         ttk.Checkbutton(panic_box, text="Закрывать приложение после паники", variable=self.panic_close_app_var).pack(anchor=tk.W)
@@ -220,10 +252,12 @@ class SettingsDialog(tk.Toplevel):
                 "minimize_to_tray": self.minimize_to_tray_var.get(),
                 "start_minimized_to_tray": self.start_minimized_var.get(),
                 "panic_mode_enabled": self.panic_enabled_var.get(),
+                "panic_hotkey": PANIC_HOTKEY,
                 "panic_mouse_gesture_enabled": self.panic_mouse_gesture_var.get(),
                 "panic_close_application": self.panic_close_app_var.get(),
                 "panic_stealth_mode": self.panic_stealth_var.get(),
                 "panic_show_fake_error": self.panic_fake_error_var.get(),
+                "theme": self._value(THEME_LABELS, self.theme_var.get()),
             }
         )
 
@@ -249,6 +283,8 @@ class SettingsDialog(tk.Toplevel):
             self.parent.apply_panic_setting()
         if hasattr(self.parent, "apply_platform_security_setting"):
             self.parent.apply_platform_security_setting()
+        if hasattr(self.parent, "apply_theme_setting"):
+            self.parent.apply_theme_setting()
 
         if warnings:
             messagebox.showwarning("Настройки сохранены с предупреждениями", "\n".join(warnings), parent=self)

@@ -12,7 +12,7 @@ logger = logging.getLogger("TrayManager")
 class TrayState:
     locked: bool = True
     clipboard_active: bool = False
-    clipboard_text: str = "Clipboard: empty"
+    clipboard_text: str = "Буфер: пусто"
     backend: str = "fallback"
     running: bool = False
 
@@ -109,9 +109,9 @@ class TrayManager:
         if active:
             data_type = getattr(status, "data_type", "text") or "text"
             remaining = getattr(status, "remaining_seconds", 0)
-            self.state.clipboard_text = f"Clipboard: {data_type} ({int(remaining)}s)"
+            self.state.clipboard_text = f"Очистить буфер: {data_type} ({int(remaining)} сек)"
         else:
-            self.state.clipboard_text = "Clipboard: empty"
+            self.state.clipboard_text = "Буфер: пусто"
         self._refresh_icon()
 
     def notify(self, title: str, message: str):
@@ -182,13 +182,13 @@ class TrayManager:
 
     def _build_pystray_menu(self, pystray):
         return pystray.Menu(
-            pystray.MenuItem(lambda item: "Unlock vault" if self.state.locked else "Lock vault", self.command_lock_or_unlock),
-            pystray.MenuItem("Show main window", self.command_show),
-            pystray.MenuItem("Quick search", self.command_quick_search),
+            pystray.MenuItem(lambda item: "Разблокировать" if self.state.locked else "Заблокировать", self.command_lock_or_unlock),
+            pystray.MenuItem("Показать окно", self.command_show),
+            pystray.MenuItem("Быстрый поиск", self.command_quick_search),
             pystray.MenuItem(lambda item: self.state.clipboard_text, self.command_clear_clipboard),
-            pystray.MenuItem("Panic mode", self.command_panic),
-            pystray.MenuItem("Settings", self.command_settings),
-            pystray.MenuItem("Exit", self.command_exit),
+            pystray.MenuItem("Режим паники", self.command_panic),
+            pystray.MenuItem("Настройки", self.command_settings),
+            pystray.MenuItem("Выход", self.command_exit),
         )
 
     def _build_icon_image(self, Image, ImageDraw):

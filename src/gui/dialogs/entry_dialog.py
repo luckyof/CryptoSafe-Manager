@@ -68,6 +68,7 @@ class PasswordGeneratorPopup(tk.Toplevel):
         btn_frame = ttk.Frame(frame)
         btn_frame.pack(fill=tk.X, pady=(15, 0))
 
+        ttk.Button(btn_frame, text="Использовать пароль", command=self._use_password).pack(side=tk.RIGHT, padx=5)
         ttk.Button(btn_frame, text="Сгенерировать", command=self._generate).pack(side=tk.RIGHT, padx=5)
         ttk.Button(btn_frame, text="Отмена", command=self.destroy).pack(side=tk.RIGHT)
 
@@ -109,6 +110,14 @@ class PasswordGeneratorPopup(tk.Toplevel):
             self.clipboard_append(password)
             self.callback(password)
             self.destroy()
+
+    def _use_password(self):
+        password = self.password_preview.get()
+        if not password:
+            messagebox.showinfo("Генератор паролей", "Сначала сгенерируйте пароль.", parent=self)
+            return
+        self.callback(password)
+        self.destroy()
 
     def center_window(self, parent):
         self.update_idletasks()

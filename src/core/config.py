@@ -61,7 +61,7 @@ SECURITY_PROFILES = {
         "activity_lock_timeout_seconds_laptop": 300,
         "activity_sensitivity": "medium",
         "panic_mode_enabled": True,
-        "panic_hotkey": "Ctrl+Shift+Esc",
+        "panic_hotkey": "Ctrl+Alt+P",
         "panic_close_application": False,
         "panic_stealth_mode": False,
         "panic_show_fake_error": False,
@@ -96,7 +96,7 @@ SECURITY_PROFILES = {
         "activity_lock_timeout_seconds_laptop": 120,
         "activity_sensitivity": "high",
         "panic_mode_enabled": True,
-        "panic_hotkey": "Ctrl+Shift+Esc",
+        "panic_hotkey": "Ctrl+Alt+P",
         "panic_close_application": False,
         "panic_stealth_mode": False,
         "panic_show_fake_error": False,
@@ -133,7 +133,7 @@ SECURITY_PROFILES = {
         "activity_lock_timeout_seconds_laptop": 60,
         "activity_sensitivity": "high",
         "panic_mode_enabled": True,
-        "panic_hotkey": "Ctrl+Shift+Esc",
+        "panic_hotkey": "Ctrl+Alt+P",
         "panic_close_application": False,
         "panic_stealth_mode": True,
         "panic_show_fake_error": True,
@@ -157,36 +157,36 @@ SECURITY_PROFILES = {
 
 ENCRYPTED_SETTING_PREFIXES = ("clipboard_",)
 SECURITY_PROFILE_DESCRIPTIONS = {
-    "Standard": "Balanced security and usability.",
-    "Enhanced": "Extra protections with modest convenience impact.",
-    "Paranoid": "Maximum security with minimal convenience.",
+    "Standard": "Баланс безопасности и удобства.",
+    "Enhanced": "Дополнительная защита с умеренным влиянием на удобство.",
+    "Paranoid": "Максимальная защита с минимальным удобством.",
 }
 SECURITY_PROFILE_KEYS = tuple(next(iter(SECURITY_PROFILES.values())).keys())
 SECURITY_SETTING_LABELS = {
-    "side_channel_protection_enabled": "Side-channel protection",
-    "cache_timing_protection": "Cache timing protection",
-    "normalize_crypto_timing": "Normalized crypto timing",
-    "random_crypto_delay": "Random crypto delay",
-    "random_delay_min_ms": "Minimum random crypto delay",
-    "random_delay_max_ms": "Maximum random crypto delay",
-    "memory_protection_enabled": "Memory protection",
-    "memory_lock_enabled": "Memory locking",
-    "memory_wipe_passes": "Memory wipe passes",
-    "memory_guard_pages_enabled": "Memory guard pages",
-    "memory_canary_enabled": "Memory canaries",
-    "activity_lock_timeout_seconds": "Auto-lock timeout",
-    "activity_lock_timeout_seconds_desktop": "Desktop auto-lock timeout",
-    "activity_lock_timeout_seconds_laptop": "Laptop auto-lock timeout",
-    "activity_sensitivity": "Activity sensitivity",
-    "panic_mode_enabled": "Panic mode",
-    "panic_hotkey": "Panic hotkey",
-    "panic_close_application": "Close application on panic",
-    "panic_stealth_mode": "Panic stealth mode",
-    "panic_show_fake_error": "Panic fake error",
-    "panic_launch_decoy": "Panic decoy launch",
-    "panic_redirect_url": "Panic redirect URL",
-    "panic_mouse_gesture_enabled": "Window-shake panic gesture",
-    "platform_secure_storage_enabled": "Platform secure storage",
+    "side_channel_protection_enabled": "Защита от атак по сторонним каналам",
+    "cache_timing_protection": "Защита от cache-timing атак",
+    "normalize_crypto_timing": "Нормализация времени криптоопераций",
+    "random_crypto_delay": "Случайная задержка криптоопераций",
+    "random_delay_min_ms": "Минимальная случайная задержка",
+    "random_delay_max_ms": "Максимальная случайная задержка",
+    "memory_protection_enabled": "Защита памяти",
+    "memory_lock_enabled": "Блокировка памяти",
+    "memory_wipe_passes": "Проходы очистки памяти",
+    "memory_guard_pages_enabled": "Защитные страницы памяти",
+    "memory_canary_enabled": "Проверочные маркеры памяти",
+    "activity_lock_timeout_seconds": "Таймаут автоблокировки",
+    "activity_lock_timeout_seconds_desktop": "Таймаут автоблокировки для ПК",
+    "activity_lock_timeout_seconds_laptop": "Таймаут автоблокировки для ноутбука",
+    "activity_sensitivity": "Чувствительность к активности",
+    "panic_mode_enabled": "Режим паники",
+    "panic_hotkey": "Горячая клавиша режима паники",
+    "panic_close_application": "Закрытие приложения при панике",
+    "panic_stealth_mode": "Скрытный режим паники",
+    "panic_show_fake_error": "Ложная ошибка при панике",
+    "panic_launch_decoy": "Запуск маскирующего приложения",
+    "panic_redirect_url": "Переход по маскирующей ссылке",
+    "panic_mouse_gesture_enabled": "Жест встряхивания окна",
+    "platform_secure_storage_enabled": "Защищенное хранилище платформы",
     "windows_credential_guard_enabled": "Windows Credential Guard",
     "windows_hello_enabled": "Windows Hello",
     "windows_secure_desktop_enabled": "Windows Secure Desktop",
@@ -522,45 +522,46 @@ class ConfigManager:
         warnings = []
         timeout = self._coerce_int(settings.get("activity_lock_timeout_seconds", 300), 300)
         if timeout < 60 or timeout > 8 * 60 * 60:
-            raise ValueError("activity_lock_timeout_seconds must be between 60 and 28800 seconds")
+            raise ValueError("Таймаут автоблокировки должен быть от 60 до 28800 секунд")
         for key in ("activity_lock_timeout_seconds_desktop", "activity_lock_timeout_seconds_laptop"):
             device_timeout = self._coerce_int(settings.get(key, timeout), timeout)
             if device_timeout < 60 or device_timeout > 8 * 60 * 60:
-                raise ValueError(f"{key} must be between 60 and 28800 seconds")
+                label = SECURITY_SETTING_LABELS.get(key, key)
+                raise ValueError(f"{label} должен быть от 60 до 28800 секунд")
         if settings.get("security_profile", "Standard") not in SECURITY_PROFILES:
-            raise ValueError("security_profile must be Standard, Enhanced, or Paranoid")
+            raise ValueError("Профиль безопасности должен быть Standard, Enhanced или Paranoid")
         if settings.get("activity_sensitivity", "medium") not in {"low", "medium", "high"}:
-            raise ValueError("activity_sensitivity must be low, medium, or high")
+            raise ValueError("Чувствительность к активности должна быть low, medium или high")
         wipe_passes = self._coerce_int(settings.get("memory_wipe_passes", 1), 1)
         if wipe_passes < 1 or wipe_passes > 7:
-            raise ValueError("memory_wipe_passes must be between 1 and 7")
+            raise ValueError("Количество проходов очистки памяти должно быть от 1 до 7")
         if not self._as_bool(settings.get("side_channel_protection_enabled", True)):
-            warnings.append("Side-channel protection is disabled.")
+            warnings.append("Защита от атак по сторонним каналам отключена.")
         if not self._as_bool(settings.get("cache_timing_protection", True)):
-            warnings.append("Cache timing protection is disabled.")
+            warnings.append("Защита от cache-timing атак отключена.")
         if not self._as_bool(settings.get("memory_protection_enabled", True)):
-            warnings.append("Memory protection is disabled.")
+            warnings.append("Защита памяти отключена.")
         if not self._as_bool(settings.get("side_channel_protection_enabled", True)) and self._as_bool(settings.get("cache_timing_protection", True)):
-            raise ValueError("cache timing protection requires side-channel protection")
+            raise ValueError("Защита от cache-timing атак требует включенной защиты от атак по сторонним каналам")
         if not self._as_bool(settings.get("memory_protection_enabled", True)) and (
             self._as_bool(settings.get("memory_lock_enabled", True))
             or self._as_bool(settings.get("memory_guard_pages_enabled", True))
             or self._as_bool(settings.get("memory_canary_enabled", True))
         ):
-            raise ValueError("memory sub-protections require memory protection")
+            raise ValueError("Дополнительные защиты памяти требуют включенной защиты памяти")
         if not self._as_bool(settings.get("tray_enabled", True)) and self._as_bool(settings.get("start_minimized_to_tray", False)):
-            raise ValueError("start minimized to tray requires tray integration")
+            raise ValueError("Запуск свернутым в трей требует включенной интеграции с треем")
         if self._as_bool(settings.get("random_crypto_delay", False)):
             min_delay = self._coerce_int(settings.get("random_delay_min_ms", 0), 0)
             max_delay = self._coerce_int(settings.get("random_delay_max_ms", 0), 0)
             if min_delay < 0 or max_delay < min_delay or max_delay > 250:
-                raise ValueError("random crypto delay must be 0..250 ms and max >= min")
+                raise ValueError("Случайная задержка криптоопераций должна быть от 0 до 250 мс, максимум не меньше минимума")
         if not self._as_bool(settings.get("clipboard_auto_clear", True)):
-            warnings.append("Clipboard auto-clear is disabled.")
+            warnings.append("Автоочистка буфера обмена отключена.")
         if not self._as_bool(settings.get("panic_mode_enabled", True)):
-            warnings.append("Panic mode is disabled.")
+            warnings.append("Режим паники отключен.")
         if not self._as_bool(settings.get("platform_secure_storage_enabled", True)):
-            warnings.append("Platform secure storage is disabled.")
+            warnings.append("Защищенное хранилище платформы отключено.")
         warnings.extend(self.get_non_default_warnings(settings))
         return warnings
 
@@ -582,7 +583,7 @@ class ConfigManager:
         for key in sorted(watched_keys):
             if settings.get(key) != defaults.get(key):
                 label = SECURITY_SETTING_LABELS.get(key, key)
-                warnings.append(f"{label} differs from the secure default.")
+                warnings.append(f"{label} отличается от безопасного значения по умолчанию.")
         return warnings
 
     def _should_encrypt_setting(self, key: str) -> bool:

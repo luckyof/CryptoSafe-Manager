@@ -3,6 +3,9 @@ from tkinter import ttk, messagebox, simpledialog
 import os
 import logging
 import subprocess
+import sys
+import threading
+import time
 import webbrowser
 from datetime import datetime, timezone
 
@@ -18,7 +21,7 @@ from .dialogs.export_dialog import ExportDialog
 from .dialogs.import_dialog import ImportDialog
 from .dialogs.sharing_dialog import SharingDialog
 from .tray_manager import TrayManager
-from .ux import COMMON_SHORTCUTS, ToolTip, friendly_error_message, security_state_color
+from .ux import COMMON_SHORTCUTS, ToolTip, apply_theme, friendly_error_message, security_state_color
 
 from core.config import ConfigManager
 from core.state_manager import state_manager
@@ -38,8 +41,8 @@ logger = logging.getLogger("MainWindow")
 class MainWindow(tk.Tk):
     def __init__(self, config: ConfigManager, defer_startup: bool = False):
         super().__init__()
-        self.title("CryptoSafe Manager - Sprint 3")
-        self.geometry("900x650")
+        self.title("CryptoSafe Manager - Sprint 8")
+        self.geometry("1120x650")
 
         self.app_config = config
         self.db = None
@@ -75,6 +78,12 @@ class MainWindow(tk.Tk):
         self._hidden_to_tray = False
         self._loading_entries = False
         self._last_entries_snapshot = []
+        self._window_shake_after_id = None
+        self._window_shake_stop = threading.Event()
+        self._window_shake_thread = None
+        self._last_window_position = None
+        self._panic_hotkey_bindings = []
+        apply_theme(self, self.app_config.get("theme", "light"))
 
         self.create_toolbar()
         self.create_search_area()
@@ -83,6 +92,7 @@ class MainWindow(tk.Tk):
         self.create_status_bar()
         self.setup_clipboard_ui()
         self.setup_tray()
+        self.after(250, self.start_window_shake_watcher)
 
         if not defer_startup:
             self.after(100, self.startup_sequence)
@@ -139,9 +149,13 @@ class MainWindow(tk.Tk):
             self.db = DatabaseHelper(self.app_config.db_path)
             self.app_config.attach_database(self.db)
             self.key_manager = KeyManager(self.db, self.app_config.get_security_settings())
+            self.update_security_status(True)
+            self.status_label.config(text="Статус: ЗАБЛОКИРОВАНО")
+            self._show_lock_overlay()
 
             login = LoginDialog(self, self.key_manager, secure_desktop=self.platform_security.should_use_secure_desktop())
             if login.success:
+                self._hide_lock_overlay()
                 self.app_config.attach_key_manager(self.key_manager)
                 self.encryption_service = AES256GCMService()
                 self.encryption_service.set_key_manager(self.key_manager)
@@ -243,6 +257,7 @@ class MainWindow(tk.Tk):
             self.tray_manager.stop()
         if self.clipboard_monitor:
             self.clipboard_monitor.stop()
+        self.stop_window_shake_watcher()
         self.clipboard_service.shutdown()
         if self.audit and hasattr(self.audit, "shutdown"):
             self.audit.shutdown()
@@ -270,6 +285,11 @@ class MainWindow(tk.Tk):
         ttk.Button(toolbar, text="Поделиться", command=self.share_selected).pack(side=tk.LEFT, padx=2)
         ttk.Button(toolbar, text="Копировать логин", command=self.copy_username).pack(side=tk.LEFT, padx=2)
         ttk.Button(toolbar, text="📋 Копировать пароль", command=self.copy_password).pack(side=tk.LEFT, padx=2)
+        ttk.Separator(toolbar, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=10)
+        ttk.Button(toolbar, text="Режим паники", command=lambda: self.activate_panic_mode("toolbar")).pack(
+            side=tk.LEFT,
+            padx=2,
+        )
 
         self._apply_toolbar_accessibility(toolbar)
 
@@ -284,6 +304,7 @@ class MainWindow(tk.Tk):
             "Share selected entry securely",
             "Copy selected username (Ctrl+U)",
             "Copy selected password (Ctrl+C)",
+            "Режим паники (Ctrl+Alt+P)",
         ]
         buttons = [child for child in toolbar.winfo_children() if isinstance(child, ttk.Button)]
         for button, tooltip in zip(buttons, tooltips):
@@ -309,7 +330,7 @@ class MainWindow(tk.Tk):
         self.bind_all("<FocusIn>", lambda e: self.record_focus_change(True))
         self.bind_all("<FocusOut>", lambda e: self.record_focus_change(False))
         self.bind_all("<Control-Shift-P>", lambda e: self.toggle_password_visibility())
-        self.bind_all(self.panic_mode.hotkey_sequence(), lambda e: self.activate_panic_mode("hotkey"))
+        self._bind_panic_hotkey()
         self._bind_common_shortcuts()
         self.bind("<Configure>", self._on_window_configure)
 
@@ -360,10 +381,26 @@ class MainWindow(tk.Tk):
 
     def apply_panic_setting(self):
         self.panic_mode.config = self.app_config.get_security_settings()
+        self._bind_panic_hotkey()
+        if self.app_config.get_bool("panic_mouse_gesture_enabled", True):
+            self.start_window_shake_watcher()
+        else:
+            self.stop_window_shake_watcher()
+
+    def _bind_panic_hotkey(self):
+        for sequence in self._panic_hotkey_bindings:
+            self.unbind_all(sequence)
+        primary = self.panic_mode.hotkey_sequence()
+        self._panic_hotkey_bindings = [primary, "<Control-Alt-P>"]
+        for sequence in dict.fromkeys(self._panic_hotkey_bindings):
+            self.bind_all(sequence, lambda e: self.activate_panic_mode("hotkey"))
 
     def apply_platform_security_setting(self):
         self.platform_security.config = self.app_config.get_security_settings()
         self.platform_security.detect_capabilities()
+
+    def apply_theme_setting(self):
+        apply_theme(self, self.app_config.get("theme", "light"))
 
     def hide_to_tray(self):
         if self._hidden_to_tray or not self.tray_manager.state.running:
@@ -386,14 +423,15 @@ class MainWindow(tk.Tk):
             self.load_entries(search_query=query)
 
     def activate_panic_mode(self, method: str = "manual"):
-        self.panic_mode.activate(method)
+        if not self.panic_mode.activate(method) and not self.panic_mode.activated:
+            self.update_status("Режим паники отключен в настройках")
 
     def recover_from_panic(self, method: str = "manual"):
         self.panic_mode.recover(method)
         self._hidden_to_tray = False
         self.tray_manager.show_window()
         if self.key_manager and state_manager.is_locked:
-            self.lock_application("panic_recovery")
+            self._reauthenticate_after_panic()
 
     def _schedule_panic_response(self, method: str):
         try:
@@ -409,13 +447,36 @@ class MainWindow(tk.Tk):
         state_manager.logout()
         self._destroy_child_windows()
         self.table.load_data([])
+        self._last_entries_snapshot = []
+        self.update_security_status(True)
+        self.status_label.config(text="Статус: ЗАБЛОКИРОВАНО")
+        self.update_status("Хранилище заблокировано режимом паники")
+        self._show_lock_overlay()
         self.tray_manager.update_security_state(True)
         event_bus.publish("VaultLocked", data={"reason": "panic_mode"})
         self._execute_panic_stealth_actions(method)
         if self.panic_mode.close_application:
             self.exit_application()
-        else:
+        elif self.tray_manager.state.running:
+            self._hidden_to_tray = True
             self.withdraw()
+
+    def _reauthenticate_after_panic(self):
+        self._show_lock_overlay()
+        login = LoginDialog(self, self.key_manager, secure_desktop=self.platform_security.should_use_secure_desktop())
+        if login.success:
+            self._hide_lock_overlay()
+            self.clipboard_service.unblock_copies()
+            state_manager.login("default_user")
+            event_bus.publish("VaultUnlocked", data={"reason": "panic_recovery"})
+            self.on_login_success()
+            return
+
+        if self.tray_manager.state.running:
+            self._hidden_to_tray = True
+            self.withdraw()
+        else:
+            self.exit_application()
 
     def _destroy_child_windows(self):
         for child in list(self.winfo_children()):
@@ -451,8 +512,124 @@ class MainWindow(tk.Tk):
     def _on_window_configure(self, event):
         if event.widget is not self or state_manager.is_locked:
             return
-        if self.panic_mode.record_window_position(event.x, event.y):
+        if self.panic_mode.record_window_position(self.winfo_x(), self.winfo_y()):
             self.activate_panic_mode("mouse_gesture")
+
+    def start_window_shake_watcher(self):
+        if self._window_shake_after_id is not None:
+            return
+        if not self.app_config.get_bool("panic_mouse_gesture_enabled", True):
+            return
+        self._last_window_position = None
+        self._start_native_window_shake_watcher()
+        self._watch_window_shake()
+
+    def stop_window_shake_watcher(self):
+        if self._window_shake_after_id is not None:
+            try:
+                self.after_cancel(self._window_shake_after_id)
+            except Exception:
+                pass
+        self._window_shake_after_id = None
+        self._window_shake_stop.set()
+        self._window_shake_thread = None
+        self._last_window_position = None
+
+    def _watch_window_shake(self):
+        self._window_shake_after_id = None
+        if not self.app_config.get_bool("panic_mouse_gesture_enabled", True):
+            return
+        if state_manager.is_locked or self.panic_mode.activated:
+            self._last_window_position = None
+            self._window_shake_after_id = self.after(30, self._watch_window_shake)
+            return
+
+        position = (self.winfo_rootx(), self.winfo_rooty())
+        if position != self._last_window_position:
+            self._last_window_position = position
+            if self.panic_mode.record_window_position(position[0], position[1]):
+                self.activate_panic_mode("window_shake")
+                return
+
+        self._window_shake_after_id = self.after(30, self._watch_window_shake)
+
+    def _start_native_window_shake_watcher(self):
+        if sys.platform != "win32" or self._window_shake_thread is not None:
+            return
+        hwnd = self._get_native_window_handle()
+        if not hwnd:
+            self.after(300, self._start_native_window_shake_watcher)
+            return
+        self._window_shake_stop.clear()
+        self._window_shake_thread = threading.Thread(
+            target=self._watch_native_window_shake,
+            args=(hwnd,),
+            name="CryptoSafeNativeWindowShake",
+            daemon=True,
+        )
+        self._window_shake_thread.start()
+
+    def _get_native_window_handle(self) -> int:
+        candidates = []
+        try:
+            candidates.append(self.frame())
+        except Exception:
+            pass
+        try:
+            candidates.append(self.winfo_id())
+        except Exception:
+            pass
+
+        for candidate in candidates:
+            try:
+                hwnd = int(str(candidate), 0)
+            except (TypeError, ValueError):
+                continue
+            if hwnd:
+                try:
+                    import ctypes
+
+                    root_hwnd = ctypes.windll.user32.GetAncestor(hwnd, 2)
+                    return root_hwnd or hwnd
+                except Exception:
+                    return hwnd
+        return 0
+
+    def _watch_native_window_shake(self, hwnd: int):
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            class RECT(ctypes.Structure):
+                _fields_ = [
+                    ("left", wintypes.LONG),
+                    ("top", wintypes.LONG),
+                    ("right", wintypes.LONG),
+                    ("bottom", wintypes.LONG),
+                ]
+
+            user32 = ctypes.windll.user32
+            rect = RECT()
+            last_position = None
+            while not self._window_shake_stop.wait(0.03):
+                if state_manager.is_locked or self.panic_mode.activated:
+                    last_position = None
+                    continue
+                if not user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+                    break
+                position = (int(rect.left), int(rect.top))
+                if position == last_position:
+                    continue
+                last_position = position
+                if self.panic_mode.record_window_position(position[0], position[1]):
+                    try:
+                        self.after(0, lambda: self.activate_panic_mode("window_shake"))
+                    except Exception:
+                        pass
+                    break
+                time.sleep(0.01)
+        finally:
+            self._window_shake_thread = None
 
     def start_clipboard_monitor(self):
         if self.clipboard_monitor or not self.app_config.get("clipboard_monitor_enabled", True):
@@ -501,19 +678,18 @@ class MainWindow(tk.Tk):
     def _show_lock_overlay(self):
         if getattr(self, "_lock_overlay", None):
             return
-        overlay = tk.Toplevel(self)
-        overlay.title("CryptoSafe Locked")
-        overlay.transient(self)
-        overlay.resizable(False, False)
-        overlay.protocol("WM_DELETE_WINDOW", lambda: None)
-        frame = ttk.Frame(overlay, padding=20)
-        frame.pack(fill=tk.BOTH, expand=True)
-        ttk.Label(frame, text="Vault locked").pack()
-        ttk.Label(frame, text="Master password is required to continue.").pack(pady=(6, 0))
-        overlay.update_idletasks()
-        x = self.winfo_rootx() + max(0, (self.winfo_width() - overlay.winfo_width()) // 2)
-        y = self.winfo_rooty() + max(0, (self.winfo_height() - overlay.winfo_height()) // 2)
-        overlay.geometry(f"+{x}+{y}")
+        overlay = tk.Frame(self, background="#d6d8dc", borderwidth=1, relief=tk.SOLID)
+        overlay.place(relx=0, rely=0, relwidth=1, relheight=1)
+        overlay.lift()
+
+        card = tk.Frame(overlay, background="#eef0f2", borderwidth=1, relief=tk.SOLID)
+        card.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
+
+        ttk.Label(card, text="Хранилище заблокировано", font=("Segoe UI", 14, "bold")).pack(
+            padx=36,
+            pady=(24, 6),
+        )
+        ttk.Label(card, text="Для продолжения требуется мастер-пароль.").pack(padx=36, pady=(0, 24))
         self._lock_overlay = overlay
 
     def _hide_lock_overlay(self):
@@ -600,6 +776,7 @@ class MainWindow(tk.Tk):
         file_menu.add_command(label="Экспорт...", command=self.show_export_dialog)
         file_menu.add_separator()
         file_menu.add_command(label="Заблокировать", command=self.lock_application)
+        file_menu.add_command(label="Режим паники", command=lambda: self.activate_panic_mode("menu"))
         file_menu.add_separator()
         file_menu.add_command(label="Выход", command=self.exit_application)
         menubar.add_cascade(label="Файл", menu=file_menu)
@@ -689,8 +866,7 @@ class MainWindow(tk.Tk):
             messagebox.showinfo("Информация", "Выберите запись для редактирования")
             return
 
-        entry = selected[0]
-        EntryDialog(self, entry_data=entry, on_save=lambda data: self._on_entry_save(data, entry.get("id")))
+        self._open_entry_editor(selected[0])
 
     def delete_selected(self):
         selected = self.table.get_selected_entries()
@@ -748,6 +924,25 @@ class MainWindow(tk.Tk):
             messagebox.showerror("Пароль", f"Не удалось показать пароль:\n{e}", parent=self)
             return ""
 
+    def _open_entry_editor(self, entry: dict):
+        entry_id = entry.get("id")
+        if not entry_id:
+            messagebox.showerror("Редактирование", "Не удалось определить выбранную запись.", parent=self)
+            return
+
+        try:
+            full_entry = self.entry_manager.get_entry(entry_id)
+        except Exception as e:
+            logger.error(f"Entry load for edit failed for {entry_id}: {e}")
+            messagebox.showerror("Редактирование", f"Не удалось загрузить запись:\n{e}", parent=self)
+            return
+
+        if not full_entry:
+            messagebox.showerror("Редактирование", "Запись не найдена.", parent=self)
+            return
+
+        EntryDialog(self, entry_data=full_entry, on_save=lambda data: self._on_entry_save(data, entry_id))
+
     def copy_entry_all(self, entry: dict):
         entry_id = entry.get("id")
         if not entry_id:
@@ -776,9 +971,9 @@ class MainWindow(tk.Tk):
 
     def _on_table_action(self, action: str, entry: dict):
         if action == "open":
-            messagebox.showinfo("Запись", f"Открыть: {entry.get('title', '')}")
+            self._open_entry_editor(entry)
         elif action == "edit":
-            EntryDialog(self, entry_data=entry, on_save=lambda data: self._on_entry_save(data, entry.get("id")))
+            self._open_entry_editor(entry)
         elif action == "copy_password":
             self.copy_entry_field(entry, "password")
         elif action == "copy_username":
@@ -856,13 +1051,15 @@ class MainWindow(tk.Tk):
     def show_about(self):
         messagebox.showinfo(
             "О программе",
-            "CryptoSafe Manager v0.3\n"
-            "Sprint 3: AES-256-GCM Encryption & Full CRUD\n\n"
-            "• Per-entry AES-256-GCM шифрование\n"
-            "• Полный CRUD с транзакциями\n"
-            "• Безопасный генератор паролей\n"
-            "• Поиск и фильтрация\n"
-            "• Контекстное меню и маскирование",
+            "CryptoSafe Manager\n"
+            "Состояние проекта: Sprint 8\n\n"
+            "• AES-256-GCM шифрование записей\n"
+            "• Управление хранилищем и мастер-паролем\n"
+            "• Безопасный буфер обмена с автоочисткой\n"
+            "• Импорт, экспорт и безопасный обмен\n"
+            "• Журнал аудита и проверка целостности\n"
+            "• Автоблокировка, системный трей и режим паники\n"
+            "• Финальная сборка, тестовый отчет и документация",
         )
 
     def toggle_password_visibility(self):

@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import Iterable, Iterator, Sequence, TypeVar
 
 import tkinter as tk
+from tkinter import ttk
 
 T = TypeVar("T")
 
@@ -24,6 +25,29 @@ SECURITY_STATE_COLORS = {
     "unlocked": "#1f6f43",
     "warning": "#8a5a00",
     "neutral": "#3f4b5b",
+}
+
+THEMES = {
+    "light": {
+        "background": "#f4f5f7",
+        "surface": "#ffffff",
+        "text": "#1f2328",
+        "muted": "#5b6470",
+        "field": "#ffffff",
+        "border": "#c9ced6",
+        "selection": "#0b65c2",
+        "selection_text": "#ffffff",
+    },
+    "dark": {
+        "background": "#1f2328",
+        "surface": "#2b3036",
+        "text": "#f0f3f6",
+        "muted": "#c6ccd3",
+        "field": "#24292f",
+        "border": "#555d66",
+        "selection": "#2f81f7",
+        "selection_text": "#ffffff",
+    },
 }
 
 
@@ -94,6 +118,124 @@ class ToolTip:
 
 def security_state_color(state: str) -> str:
     return SECURITY_STATE_COLORS.get(state, SECURITY_STATE_COLORS["neutral"])
+
+
+def normalize_theme(theme: str) -> str:
+    value = str(theme or "light").strip().lower()
+    if value in {"тёмная", "темная", "dark"}:
+        return "dark"
+    if value in {"светлая", "light"}:
+        return "light"
+    return "light"
+
+
+def apply_theme(root, theme: str):
+    theme_name = normalize_theme(theme)
+    palette = THEMES[theme_name]
+    style = ttk.Style(root)
+    try:
+        style.theme_use("clam")
+    except tk.TclError:
+        pass
+
+    root.configure(background=palette["background"])
+    style.configure(".", background=palette["background"], foreground=palette["text"])
+    style.configure("TFrame", background=palette["background"])
+    style.configure("TLabelframe", background=palette["background"], foreground=palette["text"])
+    style.configure("TLabelframe.Label", background=palette["background"], foreground=palette["text"])
+    style.configure("TLabel", background=palette["background"], foreground=palette["text"])
+    style.configure("TButton", background=palette["surface"], foreground=palette["text"])
+    style.map(
+        "TButton",
+        background=[("active", palette["border"]), ("pressed", palette["border"])],
+        foreground=[("disabled", palette["muted"])],
+    )
+    style.configure("TCheckbutton", background=palette["background"], foreground=palette["text"])
+    style.configure("TRadiobutton", background=palette["background"], foreground=palette["text"])
+    style.configure(
+        "TEntry",
+        background=palette["field"],
+        fieldbackground=palette["field"],
+        foreground=palette["text"],
+        insertcolor=palette["text"],
+    )
+    style.configure(
+        "TSpinbox",
+        background=palette["field"],
+        fieldbackground=palette["field"],
+        foreground=palette["text"],
+        arrowcolor=palette["text"],
+    )
+    style.map(
+        "TSpinbox",
+        fieldbackground=[("readonly", palette["field"]), ("disabled", palette["field"])],
+        foreground=[("readonly", palette["text"]), ("disabled", palette["muted"])],
+    )
+    style.configure(
+        "TCombobox",
+        background=palette["field"],
+        fieldbackground=palette["field"],
+        foreground=palette["text"],
+        arrowcolor=palette["text"],
+        selectbackground=palette["selection"],
+        selectforeground=palette["selection_text"],
+    )
+    style.map(
+        "TCombobox",
+        background=[("readonly", palette["field"]), ("disabled", palette["field"])],
+        fieldbackground=[("readonly", palette["field"]), ("disabled", palette["field"])],
+        foreground=[("readonly", palette["text"]), ("disabled", palette["muted"])],
+        selectbackground=[("readonly", palette["field"])],
+        selectforeground=[("readonly", palette["text"])],
+        arrowcolor=[("readonly", palette["text"]), ("disabled", palette["muted"])],
+    )
+    root.option_add("*TCombobox*Listbox.background", palette["field"])
+    root.option_add("*TCombobox*Listbox.foreground", palette["text"])
+    root.option_add("*TCombobox*Listbox.selectBackground", palette["selection"])
+    root.option_add("*TCombobox*Listbox.selectForeground", palette["selection_text"])
+    style.configure("TNotebook", background=palette["background"])
+    style.configure("TNotebook.Tab", background=palette["surface"], foreground=palette["text"])
+    style.map(
+        "TNotebook.Tab",
+        background=[("selected", palette["background"]), ("active", palette["border"])],
+        foreground=[("selected", palette["text"])],
+    )
+    style.configure("Treeview", background=palette["surface"], fieldbackground=palette["surface"], foreground=palette["text"])
+    style.configure("Treeview.Heading", background=palette["background"], foreground=palette["text"])
+    style.map(
+        "Treeview",
+        background=[("selected", palette["selection"])],
+        foreground=[("selected", palette["selection_text"])],
+    )
+    style.configure("SecurityLocked.TLabel", background=palette["background"])
+    style.configure("SecurityUnlocked.TLabel", background=palette["background"])
+    style.configure("SecurityWarning.TLabel", background=palette["background"])
+    _apply_theme_to_children(root, palette)
+
+
+def _apply_theme_to_children(widget, palette: dict):
+    for child in widget.winfo_children():
+        if isinstance(child, tk.Menu):
+            continue
+        options = {}
+        for option, value in (("background", palette["background"]), ("foreground", palette["text"])):
+            try:
+                child.cget(option)
+                options[option] = value
+            except tk.TclError:
+                pass
+        if isinstance(child, tk.Canvas):
+            options["background"] = palette["background"]
+        if isinstance(child, (tk.Entry, tk.Text, tk.Listbox, tk.Spinbox)):
+            options["background"] = palette["field"]
+            options["foreground"] = palette["text"]
+            options["insertbackground"] = palette["text"]
+        if options:
+            try:
+                child.configure(**options)
+            except tk.TclError:
+                pass
+        _apply_theme_to_children(child, palette)
 
 
 def batched(items: Sequence[T], batch_size: int) -> Iterator[Sequence[T]]:

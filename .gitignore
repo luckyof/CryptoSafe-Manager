@@ -1,0 +1,40 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Test and coverage artifacts
+.coverage
+.coverage.*
+.pytest_cache/
+htmlcov/
+tests/report/html/
+
+# Build artifacts
+build/
+dist/
+*.spec
+
+# Local virtual environments
+.venv/
+venv/
+env/
+
+# Local IDE/editor files
+.idea/
+.vscode/
+
+# Local application data and secrets
+*.db
+*.sqlite
+*.sqlite3
+*.log
+*.key
+*.pem
+*.p12
+*.pfx
+*.env
+
+# OS files
+Thumbs.db
+.DS_Store
