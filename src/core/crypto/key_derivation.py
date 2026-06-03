@@ -12,6 +12,7 @@ logger = logging.getLogger("KeyDerivation")
 
 class KeyDerivationService:
     # Лимиты для защиты от DoS (SEC-4)
+    """Описывает публичный класс KeyDerivationService."""
     MAX_TIME_COST = 10
     MAX_MEMORY_COST = 262144 # 256 MB
     MAX_PARALLELISM = 8
@@ -48,12 +49,15 @@ class KeyDerivationService:
         return value
 
     def generate_salt(self) -> bytes:
+        """Описывает публичное действие generate salt."""
         return os.urandom(16)
 
     def create_auth_hash(self, password: str) -> str:
+        """Создает auth hash."""
         return self.argon2_hasher.hash(password)
 
     def verify_password(self, password: str, stored_hash: str) -> bool:
+        """Проверяет password."""
         try:
             verified = self.argon2_hasher.verify(stored_hash, password)
             # Выполняем constant-time операцию и в успешном пути, чтобы
@@ -68,6 +72,7 @@ class KeyDerivationService:
             return False
 
     def derive_encryption_key(self, password: str, salt: bytes) -> bytes:
+        """Описывает публичное действие derive encryption key."""
         self.side_channel.apply_crypto_jitter()
         kdf = PBKDF2HMAC(
             algorithm=hashes.SHA256(),

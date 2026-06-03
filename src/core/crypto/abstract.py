@@ -2,6 +2,8 @@
 from abc import ABC, abstractmethod
 
 class EncryptionService(ABC):
+    """Определяет общий интерфейс сервиса шифрования."""
+
     @abstractmethod
     def encrypt(self, data: bytes) -> bytes:
         """Зашифровать данные, используя ключ из KeyManager."""

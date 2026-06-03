@@ -13,6 +13,7 @@ CSV_METADATA_PREFIX = "# cryptosafe:"
 
 
 class FormatValidationError(ValueError):
+    """Описывает публичный класс FormatValidationError."""
     pass
 
 
@@ -39,6 +40,7 @@ def _require_base64(value: Any, label: str):
 
 @dataclass(frozen=True)
 class NativeExportFormatSpec:
+    """Описывает публичный класс NativeExportFormatSpec."""
     version: str = FORMAT_VERSION
     schema: str = NATIVE_EXPORT_SCHEMA
     required_top_level: tuple = (
@@ -60,6 +62,7 @@ class NativeExportFormatSpec:
     )
 
     def validate(self, package: Dict[str, Any]) -> bool:
+        """Описывает публичное действие validate."""
         package = _require_mapping(package, "Native export package")
         _require_keys(package, self.required_top_level, "Native export package")
         if package.get("version") != self.version:
@@ -95,6 +98,7 @@ class NativeExportFormatSpec:
 
 @dataclass(frozen=True)
 class SharedEntryFormatSpec:
+    """Описывает публичный класс SharedEntryFormatSpec."""
     version: str = FORMAT_VERSION
     schema: str = SHARED_ENTRY_SCHEMA
     required_top_level: tuple = (
@@ -118,6 +122,7 @@ class SharedEntryFormatSpec:
     )
 
     def validate(self, package: Dict[str, Any]) -> bool:
+        """Описывает публичное действие validate."""
         package = _require_mapping(package, "Shared entry package")
         _require_keys(package, self.required_top_level, "Shared entry package")
         if package.get("version") != self.version:
@@ -155,11 +160,13 @@ class SharedEntryFormatSpec:
 
 @dataclass(frozen=True)
 class CSVFormatSpec:
+    """Описывает публичный класс CSVFormatSpec."""
     version: str = FORMAT_VERSION
     fields: tuple = ("title", "username", "password", "url", "notes", "category", "tags")
     required_fields: tuple = ("title", "password")
 
     def validate_header(self, fieldnames: Iterable[str], require_required: bool = True) -> bool:
+        """Проверяет header."""
         normalized = {str(field or "").strip().lower() for field in fieldnames}
         if require_required:
             missing = [field for field in self.required_fields if field not in normalized]
@@ -172,6 +179,7 @@ class CSVFormatSpec:
         return True
 
     def metadata_line(self, metadata: Dict[str, Any]) -> str:
+        """Описывает публичное действие metadata line."""
         payload = {
             "schema": "cryptosafe-csv-v1",
             "version": self.version,
@@ -181,6 +189,7 @@ class CSVFormatSpec:
 
     def strip_metadata_header(self, text: str) -> str:
         # Удаляем только служебные строки в начале файла, не трогая переносы внутри CSV-значений.
+        """Описывает публичное действие strip metadata header."""
         lines = io.StringIO(text)
         data_lines: List[str] = []
         for line in lines:
@@ -190,6 +199,7 @@ class CSVFormatSpec:
         return "".join(data_lines)
 
     def sniff_header(self, text: str) -> List[str]:
+        """Описывает публичное действие sniff header."""
         clean_text = self.strip_metadata_header(text)
         reader = csv.DictReader(io.StringIO(clean_text))
         return list(reader.fieldnames or [])

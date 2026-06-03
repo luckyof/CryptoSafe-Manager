@@ -24,6 +24,7 @@ AUDIT_SIGNING_CONTEXT = "audit-signing"
 
 class AuditLogSigner:
 
+    """Описывает публичный класс AuditLogSigner."""
     def __init__(self, key_manager=None, signing_key: Optional[bytes] = None):
         self.key_manager = key_manager
         self.algorithm = "HMAC-SHA256"
@@ -81,6 +82,7 @@ class AuditLogSigner:
             self.algorithm = "HMAC-SHA256"
 
     def sign(self, data: bytes) -> bytes:
+        """Описывает публичное действие sign."""
         if self._private_key is not None:
             signature = self._private_key.sign(data)
             self._ratchet_key(signature)
@@ -92,6 +94,7 @@ class AuditLogSigner:
         return signature
 
     def verify(self, data: bytes, signature: bytes) -> bool:
+        """Описывает публичное действие verify."""
         if self._private_key is not None:
             try:
                 self._private_key.public_key().verify(signature, data)
@@ -106,9 +109,11 @@ class AuditLogSigner:
         return hmac.compare_digest(expected, signature)
 
     def get_public_key_hex(self) -> str:
+        """Возвращает данные для public key hex."""
         return self._public_key_hex
 
     def verify_with_public_key(self, data: bytes, signature: bytes, public_key_hex: str) -> bool:
+        """Проверяет with public key."""
         if public_key_hex and ed25519 is not None:
             try:
                 public_key = ed25519.Ed25519PublicKey.from_public_bytes(bytes.fromhex(public_key_hex))
@@ -129,5 +134,6 @@ class AuditLogSigner:
         self._initialize_ed25519(next_seed)
 
     def clear(self):
+        """Описывает публичное действие clear."""
         self._seed_cache.clear_key()
         self._private_key = None

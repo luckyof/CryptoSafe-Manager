@@ -6,6 +6,7 @@ from gui.ux import translate_error_text
 
 
 class ImportDialog(tk.Toplevel):
+    """Описывает публичный класс ImportDialog."""
     def __init__(self, parent, entry_manager, on_import_complete=None):
         super().__init__(parent)
         self.parent = parent

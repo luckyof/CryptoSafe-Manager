@@ -32,6 +32,7 @@ PANIC_HOTKEY = "Ctrl+Alt+P"
 
 
 class SettingsDialog(tk.Toplevel):
+    """Окно настроек безопасности, буфера обмена и внешнего вида."""
     def __init__(self, parent):
         super().__init__(parent)
         self.parent = parent
@@ -82,6 +83,7 @@ class SettingsDialog(tk.Toplevel):
         self.theme_var = tk.StringVar(value=self._label(THEME_LABELS, self.config_manager.get("theme", "light")))
 
     def create_widgets(self):
+        """Создает widgets."""
         notebook = ttk.Notebook(self)
         notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
@@ -215,6 +217,7 @@ class SettingsDialog(tk.Toplevel):
         self.notify_warning_var.set(preset["clipboard_notify_on_warning"])
 
     def save(self):
+        """Сохраняет текущие данные или настройки."""
         timeout = max(5, min(300, int(self.timeout_var.get())))
         allowed_apps = [
             value.strip()

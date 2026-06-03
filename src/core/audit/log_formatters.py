@@ -14,6 +14,7 @@ class AuditLogFormatter:
         public_key: str = "",
         metadata: Dict[str, Any] = None,
     ) -> str:
+        """Описывает публичное действие to signed json."""
         entries = [AuditLogFormatter._signed_entry(row) for row in rows]
         return json.dumps(
             {
@@ -28,6 +29,7 @@ class AuditLogFormatter:
 
     @staticmethod
     def to_csv(rows: Iterable[Dict[str, Any]], metadata: Dict[str, Any] = None) -> str:
+        """Описывает публичное действие to csv."""
         output = StringIO()
         writer = csv.writer(output)
         metadata = metadata or AuditLogFormatter._default_metadata()
@@ -69,6 +71,7 @@ class AuditLogFormatter:
 
     @staticmethod
     def to_cef(rows: Iterable[Dict[str, Any]]) -> str:
+        """Описывает публичное действие to cef."""
         lines = []
         for row in rows:
             entry = AuditLogFormatter._decode_entry(row.get("entry_data"))
@@ -78,6 +81,7 @@ class AuditLogFormatter:
 
     @staticmethod
     def to_pdf(rows: Iterable[Dict[str, Any]], metadata: Dict[str, Any] = None) -> bytes:
+        """Описывает публичное действие to pdf."""
         metadata = metadata or AuditLogFormatter._default_metadata()
         rows = list(rows)
         lines = [

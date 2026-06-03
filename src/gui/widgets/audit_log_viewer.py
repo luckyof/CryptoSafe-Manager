@@ -179,6 +179,7 @@ class AuditLogViewer(ttk.Frame):
         self.context_menu.add_command(label="Export verification report", command=self.export_verification_report)
 
     def refresh(self):
+        """Описывает публичное действие refresh."""
         if self.audit_manager and hasattr(self.audit_manager, "flush_async"):
             self.audit_manager.flush_async()
         if not self.db:
@@ -284,17 +285,20 @@ class AuditLogViewer(ttk.Frame):
         self.event_type_box["values"] = [""] + values
 
     def apply_filters(self, reset_page=False):
+        """Применяет filters."""
         if reset_page:
             self.page = 0
         self.refresh()
 
     def reset_filters(self):
+        """Описывает публичное действие reset filters."""
         for var in (self.event_type_var, self.severity_var, self.user_var, self.date_from_var, self.date_to_var, self.search_var):
             var.set("")
         self.page = 0
         self.refresh()
 
     def sort_by(self, column):
+        """Описывает публичное действие sort by."""
         if self.sort_column == column:
             self.sort_desc = not self.sort_desc
         else:
@@ -410,21 +414,25 @@ class AuditLogViewer(ttk.Frame):
             self.graph_canvas.create_rectangle(x1, y1, x2, bottom, fill="#2f6fed", outline="")
 
     def prev_page(self):
+        """Описывает публичное действие prev page."""
         if self.page > 0:
             self.page -= 1
             self.refresh()
 
     def next_page(self):
+        """Описывает публичное действие next page."""
         if (self.page + 1) * self.PAGE_SIZE < self.filtered_total_rows:
             self.page += 1
             self.refresh()
 
     def on_select(self, _event=None):
+        """Описывает публичное действие on select."""
         row = self._selected_row()
         if row:
             self._show_details(row)
 
     def show_selected_details(self):
+        """Показывает selected details."""
         row = self._selected_row()
         if row:
             self._show_details(row)
@@ -465,6 +473,7 @@ class AuditLogViewer(ttk.Frame):
         return self._decode_entry_data(db_row[0]) if db_row else {}
 
     def verify_logs(self):
+        """Проверяет logs."""
         if not self.audit_manager:
             messagebox.showwarning("Аудит", "Проверка недоступна: AuditManager не подключён.", parent=self)
             return
@@ -476,6 +485,7 @@ class AuditLogViewer(ttk.Frame):
             messagebox.showerror("Аудит", "Обнаружено нарушение целостности журнала.", parent=self)
 
     def export_verification_report(self):
+        """Описывает публичное действие export verification report."""
         if not self.audit_manager:
             messagebox.showwarning("Аудит", "Проверка недоступна: AuditManager не подключён.", parent=self)
             return
@@ -500,6 +510,7 @@ class AuditLogViewer(ttk.Frame):
             messagebox.showerror("Аудит", f"Не удалось сохранить отчёт проверки:\n{translate_error_text(error)}", parent=self)
 
     def export_logs(self):
+        """Описывает публичное действие export logs."""
         if not self.db or not self.audit_manager or not self.key_manager:
             messagebox.showwarning("Аудит", "Экспорт недоступен: журнал или ключи не подключены.", parent=self)
             return
@@ -576,6 +587,7 @@ class AuditLogViewer(ttk.Frame):
             return False
 
     def manage_export_schedules(self):
+        """Описывает публичное действие manage export schedules."""
         if not self.db or not self.audit_manager or not self.key_manager:
             messagebox.showwarning("Аудит", "Расписание экспорта недоступно: журнал или ключи не подключены.", parent=self)
             return
@@ -634,6 +646,7 @@ class AuditLogViewer(ttk.Frame):
         refresh_schedules()
 
     def create_export_schedule(self, on_done=None):
+        """Создает export schedule."""
         if not self.db or not self.key_manager:
             messagebox.showwarning("Аудит", "Расписание экспорта недоступно.", parent=self)
             return
@@ -685,6 +698,7 @@ class AuditLogViewer(ttk.Frame):
             messagebox.showerror("Расписание экспорта", f"Не удалось добавить расписание:\n{translate_error_text(error)}", parent=self)
 
     def run_due_export_schedules(self, on_done=None):
+        """Описывает публичное действие run due export schedules."""
         if not self.db or not self.audit_manager or not self.key_manager:
             messagebox.showwarning("Аудит", "Расписание экспорта недоступно.", parent=self)
             return
@@ -702,6 +716,7 @@ class AuditLogViewer(ttk.Frame):
             messagebox.showerror("Расписание экспорта", f"Не удалось выполнить расписание:\n{translate_error_text(error)}", parent=self)
 
     def highlight_selected_entry(self):
+        """Описывает публичное действие highlight selected entry."""
         row = self._selected_row()
         if not row or not row["entry_id"]:
             messagebox.showinfo("Журнал аудита", "У выбранного события нет связанной записи хранилища.", parent=self)
@@ -710,6 +725,7 @@ class AuditLogViewer(ttk.Frame):
             self.on_entry_select(row["entry_id"])
 
     def show_context_menu(self, event):
+        """Показывает context menu."""
         item_id = self.table.identify_row(event.y)
         if item_id:
             self.table.selection_set(item_id)
@@ -778,6 +794,7 @@ class AuditLogViewer(ttk.Frame):
 
     def log(self, message):
         # Совместимость со старым кодом, который добавлял строки вручную.
+        """Описывает публичное действие log."""
         self.details_text.config(state=tk.NORMAL)
         self.details_text.insert(tk.END, message + "\n")
         self.details_text.config(state=tk.DISABLED)

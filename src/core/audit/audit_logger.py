@@ -273,6 +273,7 @@ class AuditLogger:
         user_id: str = "default_user",
         entry_id: Optional[str] = None,
     ) -> int:
+        """Описывает публичное действие log event."""
         if self._closed:
             return -1
         return self._write_event(event_type, severity, source, details, user_id, entry_id)
@@ -286,6 +287,7 @@ class AuditLogger:
         user_id: str = "default_user",
         entry_id: Optional[str] = None,
     ) -> bool:
+        """Описывает публичное действие log event async."""
         if self._closed:
             return False
         if not self._async_worker or not self._async_worker.is_alive():

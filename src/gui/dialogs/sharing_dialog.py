@@ -7,6 +7,7 @@ from .qr_dialog import QRCodeDialog
 
 
 class SharingDialog(tk.Toplevel):
+    """Описывает публичный класс SharingDialog."""
     def __init__(self, parent, entry_manager, entry_id: str):
         super().__init__(parent)
         self.parent = parent

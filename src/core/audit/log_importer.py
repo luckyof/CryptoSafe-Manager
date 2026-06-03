@@ -24,6 +24,7 @@ class AuditLogImportVerifier:
         self.audit_logger = audit_logger
 
     def verify_signed_json(self, signed_json) -> Dict[str, Any]:
+        """Проверяет signed json."""
         data = self._load_json(signed_json)
         entries = data.get("entries", [])
         public_key = data.get("public_key", "")
@@ -67,6 +68,7 @@ class AuditLogImportVerifier:
         return result
 
     def import_signed_json(self, signed_json, verify_first: bool = True) -> Dict[str, Any]:
+        """Описывает публичное действие import signed json."""
         data = self._load_json(signed_json)
         verification = self.verify_signed_json(data) if verify_first else {"verified": True}
         if not verification["verified"]:

@@ -12,6 +12,7 @@ from .side_channel_protection import constant_time_compare
 
 @dataclass
 class SecurityValidationResult:
+    """Описывает публичный класс SecurityValidationResult."""
     name: str
     passed: bool
     details: dict = field(default_factory=dict)
@@ -30,6 +31,7 @@ class SecurityValidationSuite:
         iterations: int = 100,
         max_ratio_delta: float = 0.35,
     ) -> SecurityValidationResult:
+        """Описывает публичное действие timing attack test."""
         operation = operation or constant_time_compare
         iterations = max(10, int(iterations or 10))
         equal_times = self._measure(operation, b"A" * 32, b"A" * 32, iterations)
@@ -57,6 +59,7 @@ class SecurityValidationSuite:
         secret: bytes,
         memory: Optional[SecureMemory] = None,
     ) -> SecurityValidationResult:
+        """Описывает публичное действие memory plaintext scan."""
         memory = memory or get_secure_memory()
         found = False
         for allocation in list(getattr(memory, "_allocations", {}).values()):
@@ -72,6 +75,7 @@ class SecurityValidationSuite:
         return result
 
     def auto_lock_reliability_test(self, monitor, idle_seconds: float) -> SecurityValidationResult:
+        """Описывает публичное действие auto lock reliability test."""
         monitor.last_activity = time.monotonic() - float(idle_seconds)
         should_lock = bool(monitor.should_lock())
         result = SecurityValidationResult(
@@ -83,6 +87,7 @@ class SecurityValidationSuite:
         return result
 
     def panic_stress_test(self, panic_mode, methods: Iterable[str]) -> SecurityValidationResult:
+        """Описывает публичное действие panic stress test."""
         activations = 0
         recoveries = 0
         for method in methods:
@@ -100,6 +105,7 @@ class SecurityValidationSuite:
         return result
 
     def integration_report(self, capabilities: dict) -> SecurityValidationResult:
+        """Описывает публичное действие integration report."""
         required = {
             "vault_memory_protection",
             "clipboard_memory_protection",
@@ -124,6 +130,7 @@ class SecurityValidationSuite:
         iterations: int = 100,
         max_overhead_ratio: float = 0.10,
     ) -> SecurityValidationResult:
+        """Описывает публичное действие constant time overhead test."""
         iterations = max(10, int(iterations or 10))
         baseline_average = self._measure_callable(baseline, iterations)
         protected_average = self._measure_callable(protected, iterations)
@@ -148,6 +155,7 @@ class SecurityValidationSuite:
         max_overhead_ratio: float = 0.05,
         memory: Optional[SecureMemory] = None,
     ) -> SecurityValidationResult:
+        """Описывает публичное действие memory overhead test."""
         memory = memory or SecureMemory({"memory_lock_enabled": False})
         buffer = memory.allocate_secure(allocation_size)
         allocation = memory.get_allocation(buffer)
@@ -173,6 +181,7 @@ class SecurityValidationSuite:
         max_cpu_fraction: float = 0.01,
         idle_callback: Optional[Callable[[], object]] = None,
     ) -> SecurityValidationResult:
+        """Описывает публичное действие idle cpu overhead test."""
         started_cpu = time.process_time()
         started_wall = time.perf_counter()
         deadline = started_wall + max(0.01, float(duration_seconds))
@@ -199,6 +208,7 @@ class SecurityValidationSuite:
         startup_callable: Callable[[], object],
         max_seconds: float = 3.0,
     ) -> SecurityValidationResult:
+        """Описывает публичное действие startup time test."""
         started = time.perf_counter()
         startup_callable()
         elapsed = time.perf_counter() - started
@@ -211,6 +221,7 @@ class SecurityValidationSuite:
         return result
 
     def security_requirements_report(self, settings: dict, degradation_checks: Optional[dict] = None) -> SecurityValidationResult:
+        """Описывает публичное действие security requirements report."""
         degradation_checks = degradation_checks or {}
         layers = {
             "side_channel": bool(settings.get("side_channel_protection_enabled", True)),

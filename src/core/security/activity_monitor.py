@@ -35,6 +35,7 @@ class ActivityMonitor:
         self._is_locked_callback = is_locked_callback or (lambda: False)
 
     def start_monitoring(self):
+        """Запускает monitoring."""
         with self._lock:
             if self.monitoring:
                 return
@@ -45,6 +46,7 @@ class ActivityMonitor:
             self.bus.publish("ActivityMonitorStarted", {"timeout_seconds": self.timeout_seconds})
 
     def stop_monitoring(self):
+        """Останавливает monitoring."""
         with self._lock:
             self.monitoring = False
         if self._thread:
@@ -53,6 +55,7 @@ class ActivityMonitor:
         self.bus.publish("ActivityMonitorStopped", {})
 
     def record_activity(self, source: str = "application"):
+        """Описывает публичное действие record activity."""
         now = time.monotonic()
         with self._lock:
             should_publish = now - self.last_published_activity >= self._publish_interval()
@@ -64,12 +67,15 @@ class ActivityMonitor:
             self.bus.publish("UserActivityRecorded", {"source": source, "idle_seconds": 0})
 
     def record_mouse_activity(self):
+        """Описывает публичное действие record mouse activity."""
         self.record_activity("mouse")
 
     def record_keyboard_activity(self):
+        """Описывает публичное действие record keyboard activity."""
         self.record_activity("keyboard")
 
     def record_focus_change(self, focused: bool):
+        """Описывает публичное действие record focus change."""
         with self._lock:
             self.last_focus_change = time.monotonic()
         self.bus.publish("WindowFocusChanged", {"focused": bool(focused)})
@@ -77,6 +83,7 @@ class ActivityMonitor:
             self.record_activity("focus")
 
     def record_system_lock_signal(self, source: str = "system"):
+        """Описывает публичное действие record system lock signal."""
         with self._lock:
             self.last_system_lock_signal = time.monotonic()
             self._lock_requested = True
@@ -84,12 +91,14 @@ class ActivityMonitor:
         self.lock_callback("system_lock")
 
     def update_config(self, config: Optional[dict]):
+        """Обновляет config."""
         with self._lock:
             self.config = config or {}
         self.bus.publish("ActivityMonitorConfigUpdated", {"timeout_seconds": self.timeout_seconds})
 
     @property
     def timeout_seconds(self) -> int:
+        """Описывает публичное действие timeout seconds."""
         raw = self._config_get("activity_lock_timeout_seconds", None)
         device_profile = str(self._config_get("activity_device_profile", "") or "").lower()
         if device_profile in {"desktop", "laptop"}:
@@ -105,14 +114,17 @@ class ActivityMonitor:
 
     @property
     def sensitivity(self) -> str:
+        """Описывает публичное действие sensitivity."""
         value = str(self._config_get("activity_sensitivity", "medium") or "medium").lower()
         return value if value in SENSITIVITY_INTERVALS else "medium"
 
     def get_idle_time(self) -> float:
+        """Возвращает данные для idle time."""
         with self._lock:
             return time.monotonic() - self.last_activity
 
     def should_lock(self) -> bool:
+        """Описывает публичное действие should lock."""
         return not self._is_locked_callback() and self.get_idle_time() >= self.timeout_seconds
 
     def _monitor_loop(self):

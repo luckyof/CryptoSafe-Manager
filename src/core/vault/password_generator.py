@@ -40,6 +40,7 @@ class PasswordStrength:
 
     @staticmethod
     def calculate(password: str) -> int:
+        """Описывает публичное действие calculate."""
         if not password:
             return 0
 
@@ -71,6 +72,7 @@ class PasswordStrength:
 
     @staticmethod
     def get_label(score: int) -> str:
+        """Возвращает данные для label."""
         labels = ["Очень слабый", "Слабый", "Средний", "Сильный", "Очень сильный"]
         return labels[score] if 0 <= score <= 4 else "Unknown"
 
@@ -91,6 +93,7 @@ class PasswordGenerator:
         exclude_ambiguous: bool = False,
     ) -> str:
         # GEN-2: Валидация длины
+        """Описывает публичное действие generate."""
         length = max(MIN_LENGTH, min(MAX_LENGTH, length))
 
         # Формируем пул символов

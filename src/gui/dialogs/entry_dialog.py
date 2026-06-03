@@ -121,6 +121,7 @@ class PasswordGeneratorPopup(tk.Toplevel):
         self.destroy()
 
     def center_window(self, parent):
+        """Описывает публичное действие center window."""
         self.update_idletasks()
         x = parent.winfo_x() + (parent.winfo_width() - self.winfo_width()) // 2
         y = parent.winfo_y() + (parent.winfo_height() - self.winfo_height()) // 2
@@ -330,6 +331,7 @@ class EntryDialog(tk.Toplevel):
         self.destroy()
 
     def center_window(self, parent):
+        """Описывает публичное действие center window."""
         self.update_idletasks()
         x = parent.winfo_x() + (parent.winfo_width() - self.winfo_width()) // 2
         y = parent.winfo_y() + (parent.winfo_height() - self.winfo_height()) // 2

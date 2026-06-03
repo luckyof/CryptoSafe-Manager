@@ -27,10 +27,12 @@ class PanicMode:
         self.register_handler(self._wipe_secure_memory)
 
     def register_handler(self, handler: Callable[[str], None]):
+        """Описывает публичное действие register handler."""
         with self._lock:
             self._handlers.append(handler)
 
     def activate(self, method: str = "manual") -> bool:
+        """Описывает публичное действие activate."""
         if not self.is_enabled:
             return False
         with self._lock:
@@ -51,11 +53,13 @@ class PanicMode:
         return True
 
     def reset(self):
+        """Описывает публичное действие reset."""
         with self._lock:
             self.activated = False
         self.bus.publish("PanicModeDeactivated", {})
 
     def recover(self, method: str = "manual") -> bool:
+        """Описывает публичное действие recover."""
         with self._lock:
             if not self.activated:
                 return False
@@ -65,17 +69,21 @@ class PanicMode:
 
     @property
     def is_enabled(self) -> bool:
+        """Описывает публичное действие is enabled."""
         return self._config_bool("panic_mode_enabled", True)
 
     @property
     def close_application(self) -> bool:
+        """Описывает публичное действие close application."""
         return self._config_bool("panic_close_application", False)
 
     @property
     def stealth_mode(self) -> bool:
+        """Описывает публичное действие stealth mode."""
         return self._config_bool("panic_stealth_mode", False)
 
     def hotkey_sequence(self) -> str:
+        """Описывает публичное действие hotkey sequence."""
         hotkey = "Ctrl+Alt+P"
         tokens = [token.strip().lower() for token in hotkey.replace("+", " ").split() if token.strip()]
         mapping = {
@@ -90,6 +98,7 @@ class PanicMode:
         return f"<{'-'.join(mapped)}>" if mapped else "<Control-Alt-p>"
 
     def record_window_position(self, x: int, y: int, now: Optional[float] = None) -> bool:
+        """Описывает публичное действие record window position."""
         if not self._config_bool("panic_mouse_gesture_enabled", True):
             return False
         now = time.monotonic() if now is None else now
@@ -109,6 +118,7 @@ class PanicMode:
         return False
 
     def record_pointer_position(self, x: int, y: int, now: Optional[float] = None) -> bool:
+        """Описывает публичное действие record pointer position."""
         if not self._config_bool("panic_mouse_gesture_enabled", True):
             return False
         now = time.monotonic() if now is None else now
@@ -119,6 +129,7 @@ class PanicMode:
         return False
 
     def execute_stealth_actions(self, method: str = "manual") -> list[dict]:
+        """Описывает публичное действие execute stealth actions."""
         if not self.stealth_mode:
             return []
         actions = []

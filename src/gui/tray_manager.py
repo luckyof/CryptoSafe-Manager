@@ -10,6 +10,7 @@ logger = logging.getLogger("TrayManager")
 
 @dataclass
 class TrayState:
+    """Описывает публичный класс TrayState."""
     locked: bool = True
     clipboard_active: bool = False
     clipboard_text: str = "Буфер: пусто"
@@ -56,6 +57,7 @@ class TrayManager:
         self._thread: Optional[threading.Thread] = None
 
     def start(self) -> bool:
+        """Описывает публичное действие start."""
         if not self._config_bool("tray_enabled", True):
             return False
         if self.state.running:
@@ -68,6 +70,7 @@ class TrayManager:
         return True
 
     def stop(self):
+        """Описывает публичное действие stop."""
         if not self.state.running:
             return
         self.state.running = False
@@ -81,6 +84,7 @@ class TrayManager:
         self.bus.publish("TrayStopped", {"backend": self.state.backend})
 
     def hide_window(self):
+        """Скрывает window."""
         try:
             self.app.withdraw()
             self.bus.publish("WindowHiddenToTray", {"backend": self.state.backend})
@@ -88,6 +92,7 @@ class TrayManager:
             logger.error("Failed to hide window to tray: %s", exc)
 
     def show_window(self):
+        """Показывает window."""
         try:
             self.app.deiconify()
             self.app.lift()
@@ -100,10 +105,12 @@ class TrayManager:
             logger.error("Failed to restore window from tray: %s", exc)
 
     def update_security_state(self, locked: bool):
+        """Обновляет security state."""
         self.state.locked = bool(locked)
         self._refresh_icon()
 
     def update_clipboard_status(self, status):
+        """Обновляет clipboard status."""
         active = bool(getattr(status, "active", False))
         self.state.clipboard_active = active
         if active:
@@ -115,6 +122,7 @@ class TrayManager:
         self._refresh_icon()
 
     def notify(self, title: str, message: str):
+        """Описывает публичное действие notify."""
         if self._icon is not None and hasattr(self._icon, "notify"):
             try:
                 self._icon.notify(message, title)
@@ -124,27 +132,34 @@ class TrayManager:
         self.bus.publish("TrayNotification", {"title": title, "message": message})
 
     def command_lock_or_unlock(self):
+        """Описывает публичное действие command lock or unlock."""
         if self.state.locked:
             self._dispatch(self.unlock_callback)
         else:
             self._dispatch(self.lock_callback)
 
     def command_show(self):
+        """Описывает публичное действие command show."""
         self._dispatch(self.show_callback)
 
     def command_quick_search(self):
+        """Описывает публичное действие command quick search."""
         self._dispatch(self.quick_search_callback)
 
     def command_clear_clipboard(self):
+        """Описывает публичное действие command clear clipboard."""
         self._dispatch(self.clear_clipboard_callback)
 
     def command_panic(self):
+        """Описывает публичное действие command panic."""
         self._dispatch(self.panic_callback)
 
     def command_settings(self):
+        """Описывает публичное действие command settings."""
         self._dispatch(self.settings_callback)
 
     def command_exit(self):
+        """Описывает публичное действие command exit."""
         self._dispatch(self.exit_callback)
 
     def _dispatch(self, callback: Callable[[], None]):

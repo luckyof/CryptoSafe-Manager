@@ -200,6 +200,7 @@ SECURITY_SETTING_LABELS = {
 
 
 class ConfigManager:
+    """Управляет настройками приложения и профилями безопасности."""
     def __init__(self, profile: str = "default"):
         self.profile = profile
         self.config_dir = os.path.join(os.path.expanduser("~"), ".cryptosafe")
@@ -255,10 +256,12 @@ class ConfigManager:
             json.dump({"db_path": self.db_path}, f, indent=4)
 
     def attach_database(self, db_helper: "DatabaseHelper"):
+        """Описывает публичное действие attach database."""
         self._db_helper = db_helper
         self._load_settings_from_db()
 
     def attach_key_manager(self, key_manager: "KeyManager"):
+        """Описывает публичное действие attach key manager."""
         self._key_manager = key_manager
         self._load_settings_from_db()
 
@@ -278,9 +281,11 @@ class ConfigManager:
                 logger.warning(f"Failed to load setting {key}: {e}")
 
     def get(self, key: str, default=None):
+        """Описывает публичное действие get."""
         return self.settings.get(key, default)
 
     def get_bool(self, key: str, default: bool = False) -> bool:
+        """Возвращает данные для bool."""
         value = self.get(key, default)
         if isinstance(value, bool):
             return value
@@ -289,6 +294,7 @@ class ConfigManager:
         return bool(value)
 
     def get_int(self, key: str, default: int = 0) -> int:
+        """Возвращает данные для int."""
         try:
             return int(self.get(key, default))
         except (TypeError, ValueError):
@@ -310,6 +316,7 @@ class ConfigManager:
             return default
 
     def set(self, key: str, value: Any):
+        """Описывает публичное действие set."""
         old_value = self.settings.get(key)
         self.settings[key] = value
         try:
@@ -324,6 +331,7 @@ class ConfigManager:
             raise
 
     def set_many(self, values: dict, *, source: str = "settings") -> list[str]:
+        """Сохраняет или обновляет значение many."""
         old_settings = dict(self.settings)
         candidate = dict(self.settings)
         candidate.update(values)
@@ -374,6 +382,7 @@ class ConfigManager:
             )
 
     def get_clipboard_settings(self) -> dict:
+        """Возвращает данные для clipboard settings."""
         return {
             "timeout": self.get_int("clipboard_timeout", 30),
             "auto_clear": self.get_bool("clipboard_auto_clear", True),
@@ -388,6 +397,7 @@ class ConfigManager:
         }
 
     def set_clipboard_settings(self, values: dict):
+        """Сохраняет или обновляет значение clipboard settings."""
         key_map = {
             "timeout": "clipboard_timeout",
             "auto_clear": "clipboard_auto_clear",
@@ -404,6 +414,7 @@ class ConfigManager:
             self.set(key_map.get(key, key), value)
 
     def apply_clipboard_profile(self, profile_name: str):
+        """Применяет clipboard profile."""
         if profile_name not in CLIPBOARD_PRESETS:
             raise ValueError(f"Unknown clipboard profile: {profile_name}")
         values = dict(CLIPBOARD_PRESETS[profile_name])
@@ -411,6 +422,7 @@ class ConfigManager:
         return self.set_many(values, source="clipboard_profile")
 
     def get_security_settings(self) -> dict:
+        """Возвращает данные для security settings."""
         keys = {
             "security_profile",
             "side_channel_protection_enabled",
@@ -458,6 +470,7 @@ class ConfigManager:
         return {key: self.get(key) for key in keys}
 
     def preview_security_profile(self, profile_name: str) -> dict:
+        """Описывает публичное действие preview security profile."""
         if profile_name not in SECURITY_PROFILES:
             raise ValueError(f"Unknown security profile: {profile_name}")
         candidate = dict(self.settings)
@@ -485,6 +498,7 @@ class ConfigManager:
         }
 
     def explain_security_profile_change(self, profile_name: str) -> str:
+        """Описывает публичное действие explain security profile change."""
         preview = self.preview_security_profile(profile_name)
         lines = [f"{preview['profile']}: {preview['description']}"]
         if preview["changes"]:
@@ -499,6 +513,7 @@ class ConfigManager:
         return "\n".join(lines)
 
     def apply_security_profile(self, profile_name: str):
+        """Применяет security profile."""
         preview = self.preview_security_profile(profile_name)
         values = dict(SECURITY_PROFILES[profile_name])
         values["security_profile"] = profile_name
@@ -515,9 +530,11 @@ class ConfigManager:
         return preview
 
     def validate_security_settings(self, settings: Optional[dict] = None) -> list[str]:
+        """Проверяет security settings."""
         return self.validate_settings(settings or self.settings)
 
     def validate_settings(self, settings: Optional[dict] = None) -> list[str]:
+        """Проверяет settings."""
         settings = settings or self.settings
         warnings = []
         timeout = self._coerce_int(settings.get("activity_lock_timeout_seconds", 300), 300)
@@ -566,6 +583,7 @@ class ConfigManager:
         return warnings
 
     def get_non_default_warnings(self, settings: Optional[dict] = None) -> list[str]:
+        """Возвращает данные для non default warnings."""
         settings = settings or self.settings
         defaults = self._default_settings()
         warnings = []

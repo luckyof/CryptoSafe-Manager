@@ -44,6 +44,7 @@ class PlatformSecurityManager:
         self._last_status: Optional[PlatformSecurityStatus] = None
 
     def detect_capabilities(self) -> PlatformSecurityStatus:
+        """Описывает публичное действие detect capabilities."""
         normalized = self._normalize_system(self.system)
         if normalized == "Windows":
             status = self._detect_windows()
@@ -78,6 +79,7 @@ class PlatformSecurityManager:
         return status
 
     def select_secure_storage_backend(self, status: Optional[PlatformSecurityStatus] = None) -> str:
+        """Описывает публичное действие select secure storage backend."""
         status = status or self._last_status or self.detect_capabilities()
         if not self._enabled("platform_secure_storage_enabled", True):
             return "encrypted-config-fallback"
@@ -90,6 +92,7 @@ class PlatformSecurityManager:
         return "encrypted-config-fallback"
 
     def should_use_secure_desktop(self) -> bool:
+        """Описывает публичное действие should use secure desktop."""
         if self._normalize_system(self.system) != "Windows":
             return False
         status = self._last_status or self.detect_capabilities()
@@ -97,6 +100,7 @@ class PlatformSecurityManager:
         return bool(capability and capability.enabled)
 
     def build_policy_hints(self, status: Optional[PlatformSecurityStatus] = None) -> list[str]:
+        """Описывает публичное действие build policy hints."""
         status = status or self._last_status or self.detect_capabilities()
         hints = []
         if status.system == "Windows":
@@ -114,6 +118,7 @@ class PlatformSecurityManager:
         return hints
 
     def platform_requirements_report(self) -> dict:
+        """Описывает публичное действие platform requirements report."""
         status = self.detect_capabilities()
         required = {
             "Windows": {"credential_guard", "secure_desktop"},

@@ -53,11 +53,13 @@ THEMES = {
 
 @dataclass(frozen=True)
 class UserMessage:
+    """Описывает публичный класс UserMessage."""
     title: str
     body: str
     suggestion: str = ""
 
     def format(self) -> str:
+        """Описывает публичное действие format."""
         return f"{self.body}\n\n{self.suggestion}" if self.suggestion else self.body
 
 
@@ -81,6 +83,7 @@ class ToolTip:
         self._after_id = self.widget.after(self.delay_ms, self.show)
 
     def show(self):
+        """Описывает публичное действие show."""
         if self._tip or not self.text:
             return
         x = self.widget.winfo_rootx() + 12
@@ -100,6 +103,7 @@ class ToolTip:
         label.pack()
 
     def hide(self, event=None):
+        """Описывает публичное действие hide."""
         if self._after_id:
             self.widget.after_cancel(self._after_id)
             self._after_id = None
@@ -117,10 +121,12 @@ class ToolTip:
 
 
 def security_state_color(state: str) -> str:
+    """Описывает публичную операцию security state color."""
     return SECURITY_STATE_COLORS.get(state, SECURITY_STATE_COLORS["neutral"])
 
 
 def normalize_theme(theme: str) -> str:
+    """Описывает публичную операцию normalize theme."""
     value = str(theme or "light").strip().lower()
     if value in {"тёмная", "темная", "dark"}:
         return "dark"
@@ -130,6 +136,7 @@ def normalize_theme(theme: str) -> str:
 
 
 def apply_theme(root, theme: str):
+    """Применяет theme."""
     theme_name = normalize_theme(theme)
     palette = THEMES[theme_name]
     style = ttk.Style(root)
@@ -239,6 +246,7 @@ def _apply_theme_to_children(widget, palette: dict):
 
 
 def batched(items: Sequence[T], batch_size: int) -> Iterator[Sequence[T]]:
+    """Описывает публичную операцию batched."""
     size = max(1, int(batch_size or 1))
     for index in range(0, len(items), size):
         yield items[index : index + size]
@@ -316,6 +324,7 @@ ERROR_TRANSLATIONS = {
 
 
 def translate_error_text(error) -> str:
+    """Описывает публичную операцию translate error text."""
     text = str(error).strip()
     if not text:
         return "Неизвестная ошибка."
@@ -346,6 +355,7 @@ def translate_error_text(error) -> str:
 
 
 def friendly_error_message(error: Exception, context: str = "operation") -> UserMessage:
+    """Описывает публичную операцию friendly error message."""
     text = str(error).strip()
     lowered = text.lower()
     if "database" in lowered or "sqlite" in lowered or "locked" in lowered:

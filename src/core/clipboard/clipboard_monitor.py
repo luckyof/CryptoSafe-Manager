@@ -11,6 +11,7 @@ logger = logging.getLogger("ClipboardMonitor")
 class ClipboardMonitor:
 
 
+    """Описывает публичный класс ClipboardMonitor."""
     def __init__(self, clipboard_service: ClipboardService, interval_seconds: float = 1.0):
         self.clipboard_service = clipboard_service
         self.interval_seconds = max(0.25, float(interval_seconds))
@@ -20,6 +21,7 @@ class ClipboardMonitor:
         self._lock = threading.RLock()
 
     def start(self) -> bool:
+        """Описывает публичное действие start."""
         with self._lock:
             if self._running:
                 return True
@@ -33,6 +35,7 @@ class ClipboardMonitor:
             return True
 
     def stop(self):
+        """Описывает публичное действие stop."""
         with self._lock:
             self._running = False
             if self._timer is not None:
@@ -41,6 +44,7 @@ class ClipboardMonitor:
         self.clipboard_service._publish("ClipboardMonitorStopped", {})
 
     def poll_once(self):
+        """Описывает публичное действие poll once."""
         current = self._read_access_info()
         if current is _READ_FAILED:
             return

@@ -21,6 +21,7 @@ atexit.register(_close_open_database_helpers)
 
 
 class DatabaseHelper:
+    """Инкапсулирует SQLite, миграции, запросы и резервное восстановление."""
     def __init__(self, db_path: str):
         self.db_path = db_path
         self._local = threading.local()
@@ -405,6 +406,7 @@ class DatabaseHelper:
         cursor.execute("ALTER TABLE vault_entries_new RENAME TO vault_entries")
 
     def execute(self, query: str, params: tuple = ()):
+        """Описывает публичное действие execute."""
         self._guard_audit_mutation(query)
         conn = self._get_connection()
         cursor = conn.cursor()
@@ -414,10 +416,12 @@ class DatabaseHelper:
         return cursor.lastrowid
 
     def unsafe_audit_execute(self, query: str, params: tuple = ()):
+        """Описывает публичное действие unsafe audit execute."""
         with self.audit_maintenance():
             return self.execute(query, params)
 
     def execute_many(self, queries: list):
+        """Описывает публичное действие execute many."""
         conn = self._get_connection()
         cursor = conn.cursor()
         try:
@@ -431,22 +435,26 @@ class DatabaseHelper:
             return False
 
     def begin_transaction(self):
+        """Описывает публичное действие begin transaction."""
         conn = self._get_connection()
         self._local.explicit_transaction = True
         conn.execute("BEGIN IMMEDIATE")
 
     def commit_transaction(self):
+        """Описывает публичное действие commit transaction."""
         conn = self._get_connection()
         conn.commit()
         self._local.explicit_transaction = False
 
     def rollback_transaction(self):
+        """Описывает публичное действие rollback transaction."""
         conn = self._get_connection()
         conn.rollback()
         self._local.explicit_transaction = False
         logger.warning("Transaction rolled back")
 
     def fetchall(self, query: str, params: tuple = ()):
+        """Описывает публичное действие fetchall."""
         self._guard_audit_read(query)
         conn = self._get_connection()
         cursor = conn.cursor()
@@ -454,6 +462,7 @@ class DatabaseHelper:
         return cursor.fetchall()
 
     def fetchone(self, query: str, params: tuple = ()):
+        """Описывает публичное действие fetchone."""
         self._guard_audit_read(query)
         conn = self._get_connection()
         cursor = conn.cursor()
@@ -461,6 +470,7 @@ class DatabaseHelper:
         return cursor.fetchone()
 
     def iter_rows(self, query: str, params: tuple = (), batch_size: int = 500):
+        """Описывает публичное действие iter rows."""
         self._guard_audit_read(query)
         conn = self._get_connection()
         cursor = conn.cursor()
@@ -473,13 +483,16 @@ class DatabaseHelper:
                 yield row
 
     def enable_audit_read(self):
+        """Описывает публичное действие enable audit read."""
         self._audit_reads_allowed = True
 
     def disable_audit_read(self):
+        """Описывает публичное действие disable audit read."""
         self._audit_reads_allowed = False
 
     @contextmanager
     def audit_read_access(self):
+        """Описывает публичное действие audit read access."""
         old_value = self._audit_reads_allowed
         self._audit_reads_allowed = True
         try:
@@ -489,6 +502,7 @@ class DatabaseHelper:
 
     @contextmanager
     def audit_maintenance(self):
+        """Описывает публичное действие audit maintenance."""
         old_value = getattr(self._local, "audit_maintenance", False)
         self._local.audit_maintenance = True
         try:
@@ -512,6 +526,7 @@ class DatabaseHelper:
         raise PermissionError("Audit log read requires authenticated access.")
 
     def get_audit_rotation_policy(self) -> dict:
+        """Возвращает данные для audit rotation policy."""
         row = self.fetchone(
             "SELECT max_entries, max_age_days, auto_archive FROM audit_rotation_policy WHERE id = 1"
         )
@@ -529,6 +544,7 @@ class DatabaseHelper:
         max_age_days: int = 365,
         auto_archive: bool = True,
     ):
+        """Сохраняет или обновляет значение audit rotation policy."""
         self.execute(
             """
             INSERT INTO audit_rotation_policy (id, max_entries, max_age_days, auto_archive)
@@ -542,6 +558,7 @@ class DatabaseHelper:
         )
 
     def rotate_audit_logs(self) -> int:
+        """Описывает публичное действие rotate audit logs."""
         policy = self.get_audit_rotation_policy()
         if not policy["auto_archive"]:
             return 0
@@ -595,6 +612,7 @@ class DatabaseHelper:
         return count
 
     def backup(self, backup_path: str) -> bool:
+        """Описывает публичное действие backup."""
         try:
             if hasattr(self._local, "connection"):
                 self._local.connection.close()
@@ -609,6 +627,7 @@ class DatabaseHelper:
             return False
 
     def validate_integrity(self) -> dict:
+        """Проверяет integrity."""
         try:
             row = self.fetchone("PRAGMA integrity_check")
             ok = bool(row and row[0] == "ok")
@@ -617,6 +636,7 @@ class DatabaseHelper:
             return {"ok": False, "message": str(error)}
 
     def recover_to(self, recovered_db_path: str) -> dict:
+        """Описывает публичное действие recover to."""
         source_ok = self.validate_integrity()
         recovered = DatabaseHelper(recovered_db_path)
         copied_entries = 0
@@ -653,6 +673,7 @@ class DatabaseHelper:
 
     @staticmethod
     def recover_corrupt_database(corrupt_db_path: str, recovered_db_path: str) -> dict:
+        """Описывает публичное действие recover corrupt database."""
         quarantine_path = f"{corrupt_db_path}.corrupt"
         if os.path.exists(corrupt_db_path):
             shutil.copy2(corrupt_db_path, quarantine_path)
@@ -667,6 +688,7 @@ class DatabaseHelper:
         }
 
     def get_audit_timeline(self, include_archive: bool = True):
+        """Возвращает данные для audit timeline."""
         query = """
             SELECT sequence_number, timestamp, COALESCE(event_type, action), entry_id, details, 'active' AS location
             FROM audit_log
@@ -684,6 +706,7 @@ class DatabaseHelper:
             return self.fetchall(query)
 
     def close(self):
+        """Описывает публичное действие close."""
         if hasattr(self._local, "connection"):
             self._local.connection.close()
             del self._local.connection
@@ -697,6 +720,7 @@ class DatabaseHelper:
 
     @classmethod
     def close_all(cls):
+        """Описывает публичное действие close all."""
         for helper in list(_OPEN_DATABASE_HELPERS):
             try:
                 helper.close()

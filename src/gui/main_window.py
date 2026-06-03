@@ -39,6 +39,7 @@ logger = logging.getLogger("MainWindow")
 
 
 class MainWindow(tk.Tk):
+    """Главное окно с таблицей записей и действиями хранилища."""
     def __init__(self, config: ConfigManager, defer_startup: bool = False):
         super().__init__()
         self.title("CryptoSafe Manager - Sprint 8")
@@ -106,6 +107,7 @@ class MainWindow(tk.Tk):
         self.protocol("WM_DELETE_WINDOW", self.on_close)
 
     def startup_sequence(self):
+        """Описывает публичное действие startup sequence."""
         db_path = self.app_config.db_path
         if not os.path.exists(db_path):
             self.run_setup_wizard()
@@ -113,6 +115,7 @@ class MainWindow(tk.Tk):
             self.login_and_load()
 
     def run_setup_wizard(self):
+        """Описывает публичное действие run setup wizard."""
         wizard = SetupWizard(self, self.app_config)
         self.wait_window(wizard)
 
@@ -127,6 +130,7 @@ class MainWindow(tk.Tk):
             self.quit()
 
     def initialize_new_vault(self, db_path, password):
+        """Описывает публичное действие initialize new vault."""
         try:
             self.db = DatabaseHelper(db_path)
             self.app_config.db_path = db_path
@@ -147,6 +151,7 @@ class MainWindow(tk.Tk):
             return False
 
     def login_and_load(self):
+        """Описывает публичное действие login and load."""
         try:
             self.db = DatabaseHelper(self.app_config.db_path)
             self.app_config.attach_database(self.db)
@@ -172,6 +177,7 @@ class MainWindow(tk.Tk):
             self.quit()
 
     def on_login_success(self):
+        """Описывает публичное действие on login success."""
         if self.audit and hasattr(self.audit, "shutdown"):
             self.audit.shutdown()
         self.audit = AuditManager(self.db, key_manager=self.key_manager)
@@ -184,6 +190,7 @@ class MainWindow(tk.Tk):
         self.load_entries()
 
     def load_entries(self, search_query: str = "", filters=None):
+        """Загружает entries."""
         try:
             if search_query:
                 data = self.entry_manager.search_entries(search_query)
@@ -203,6 +210,7 @@ class MainWindow(tk.Tk):
             return
 
     def on_minimize_event(self, event):
+        """Описывает публичное действие on minimize event."""
         self.record_focus_change(False)
         if event.widget is self and self.app_config.get_bool("minimize_to_tray", True):
             self.hide_to_tray()
@@ -210,6 +218,7 @@ class MainWindow(tk.Tk):
             self._schedule_auto_lock("minimize")
 
     def check_inactivity(self):
+        """Описывает публичное действие check inactivity."""
         if self.key_manager and not state_manager.is_locked:
             if self.activity_monitor.should_lock():
                 self._schedule_auto_lock("fallback_timer")
@@ -219,6 +228,7 @@ class MainWindow(tk.Tk):
         self.after(self.auto_lock_check_interval, self.check_inactivity)
 
     def lock_application(self, reason: str = "manual"):
+        """Описывает публичное действие lock application."""
         if self._lock_in_progress or state_manager.is_locked:
             return
         self._lock_in_progress = True
@@ -247,12 +257,14 @@ class MainWindow(tk.Tk):
         self._lock_in_progress = False
 
     def on_close(self):
+        """Описывает публичное действие on close."""
         if self.app_config.get_bool("minimize_to_tray", True) and self.tray_manager.state.running:
             self.hide_to_tray()
             return
         self.exit_application()
 
     def exit_application(self):
+        """Описывает публичное действие exit application."""
         if self._closing:
             return
         self._closing = True
@@ -327,6 +339,7 @@ class MainWindow(tk.Tk):
             pass
 
     def create_toolbar(self):
+        """Создает toolbar."""
         toolbar = ttk.Frame(self)
         toolbar.pack(side=tk.TOP, fill=tk.X, padx=5, pady=5)
 
@@ -372,16 +385,19 @@ class MainWindow(tk.Tk):
             ToolTip(button, tooltip)
 
     def create_search_area(self):
+        """Создает search area."""
         self.search_widget = SearchWidget(self, on_search=self.on_search)
         self.search_widget.pack(fill=tk.X, padx=10, pady=(0, 5))
 
     def on_search(self, query):
+        """Описывает публичное действие on search."""
         if isinstance(query, dict):
             self.load_entries(search_query=query.get("query", ""), filters=query)
         else:
             self.load_entries(search_query=query)
 
     def create_main_area(self):
+        """Создает main area."""
         self.table = SecureTable(self)
         self.table.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
 
@@ -413,10 +429,12 @@ class MainWindow(tk.Tk):
             self.bind_all(COMMON_SHORTCUTS[action], callback)
 
     def focus_search(self):
+        """Описывает публичное действие focus search."""
         if hasattr(self.search_widget, "focus_search"):
             self.search_widget.focus_search()
 
     def setup_clipboard_ui(self):
+        """Описывает публичное действие setup clipboard ui."""
         self.clipboard_service.add_observer(lambda status: self._safe_after(0, self._on_clipboard_status, status))
         event_bus.subscribe("ClipboardCopied", lambda event: self._safe_after(0, self._on_clipboard_copied, event.data))
         event_bus.subscribe("ClipboardCleared", lambda event: self._safe_after(0, self._on_clipboard_cleared, event.data))
@@ -426,6 +444,7 @@ class MainWindow(tk.Tk):
         self._safe_after(1000, self.refresh_clipboard_status)
 
     def setup_tray(self):
+        """Описывает публичное действие setup tray."""
         if not self.app_config.get_bool("tray_enabled", True):
             return
         self.tray_manager.start()
@@ -434,6 +453,7 @@ class MainWindow(tk.Tk):
             self.after(250, self.hide_to_tray)
 
     def apply_tray_setting(self):
+        """Применяет tray setting."""
         if self.app_config.get_bool("tray_enabled", True):
             self.tray_manager.start()
             self.tray_manager.update_security_state(state_manager.is_locked)
@@ -441,6 +461,7 @@ class MainWindow(tk.Tk):
             self.tray_manager.stop()
 
     def apply_panic_setting(self):
+        """Применяет panic setting."""
         self.panic_mode.config = self.app_config.get_security_settings()
         self._bind_panic_hotkey()
         if self.app_config.get_bool("panic_mouse_gesture_enabled", True):
@@ -460,13 +481,16 @@ class MainWindow(tk.Tk):
         return "break"
 
     def apply_platform_security_setting(self):
+        """Применяет platform security setting."""
         self.platform_security.config = self.app_config.get_security_settings()
         self.platform_security.detect_capabilities()
 
     def apply_theme_setting(self):
+        """Применяет theme setting."""
         apply_theme(self, self.app_config.get("theme", "light"))
 
     def hide_to_tray(self):
+        """Скрывает to tray."""
         if self._hidden_to_tray or not self.tray_manager.state.running:
             return
         self._hidden_to_tray = True
@@ -474,6 +498,7 @@ class MainWindow(tk.Tk):
         self.tray_manager.notify("CryptoSafe Manager", "Приложение работает в фоновом режиме.")
 
     def show_window_from_tray(self):
+        """Показывает window from tray."""
         if self.panic_mode.activated:
             self.recover_from_panic("tray")
             return
@@ -481,16 +506,19 @@ class MainWindow(tk.Tk):
         self.tray_manager.show_window()
 
     def quick_search_from_tray(self):
+        """Описывает публичное действие quick search from tray."""
         self.show_window_from_tray()
         query = simpledialog.askstring("Быстрый поиск", "Поиск в хранилище:", parent=self)
         if query is not None:
             self.load_entries(search_query=query)
 
     def activate_panic_mode(self, method: str = "manual"):
+        """Описывает публичное действие activate panic mode."""
         if not self.panic_mode.activate(method) and not self.panic_mode.activated:
             self.update_status("Режим паники отключен в настройках")
 
     def recover_from_panic(self, method: str = "manual"):
+        """Описывает публичное действие recover from panic."""
         self.panic_mode.recover(method)
         self._hidden_to_tray = False
         self.tray_manager.show_window()
@@ -601,6 +629,7 @@ class MainWindow(tk.Tk):
             self.activate_panic_mode("mouse_gesture")
 
     def start_window_shake_watcher(self):
+        """Запускает window shake watcher."""
         if self._window_shake_after_id is not None:
             return
         if not self.app_config.get_bool("panic_mouse_gesture_enabled", True):
@@ -610,6 +639,7 @@ class MainWindow(tk.Tk):
         self._watch_window_shake()
 
     def stop_window_shake_watcher(self):
+        """Останавливает window shake watcher."""
         if self._window_shake_after_id is not None:
             try:
                 self.after_cancel(self._window_shake_after_id)
@@ -717,12 +747,14 @@ class MainWindow(tk.Tk):
             self._window_shake_thread = None
 
     def start_clipboard_monitor(self):
+        """Запускает clipboard monitor."""
         if self.clipboard_monitor or not self.app_config.get("clipboard_monitor_enabled", True):
             return
         self.clipboard_monitor = ClipboardMonitor(self.clipboard_service)
         self.clipboard_monitor.start()
 
     def apply_clipboard_monitor_setting(self):
+        """Применяет clipboard monitor setting."""
         enabled = self.app_config.get_bool("clipboard_monitor_enabled", True)
         if enabled:
             self.start_clipboard_monitor()
@@ -731,18 +763,22 @@ class MainWindow(tk.Tk):
             self.clipboard_monitor = None
 
     def start_activity_monitor(self):
+        """Запускает activity monitor."""
         self.activity_monitor.update_config(self.app_config.get_security_settings())
         self.activity_monitor.start_monitoring()
 
     def stop_activity_monitor(self):
+        """Останавливает activity monitor."""
         self.activity_monitor.stop_monitoring()
 
     def apply_activity_monitor_setting(self):
+        """Применяет activity monitor setting."""
         self.activity_monitor.update_config(self.app_config.get_security_settings())
         if not state_manager.is_locked:
             self.start_activity_monitor()
 
     def record_user_activity(self, source: str = "application"):
+        """Описывает публичное действие record user activity."""
         state_manager.update_activity()
         if source == "keyboard":
             self.activity_monitor.record_keyboard_activity()
@@ -752,6 +788,7 @@ class MainWindow(tk.Tk):
             self.activity_monitor.record_activity(source)
 
     def record_focus_change(self, focused: bool):
+        """Описывает публичное действие record focus change."""
         self.activity_monitor.record_focus_change(focused)
 
     def _schedule_auto_lock(self, reason: str = "inactivity"):
@@ -854,6 +891,7 @@ class MainWindow(tk.Tk):
         return parsed.astimezone(timezone.utc)
 
     def create_menu(self):
+        """Создает menu."""
         menubar = tk.Menu(self)
 
         file_menu = tk.Menu(menubar, tearoff=0)
@@ -886,6 +924,7 @@ class MainWindow(tk.Tk):
         self.config(menu=menubar)
 
     def create_status_bar(self):
+        """Создает status bar."""
         style = ttk.Style(self)
         style.configure("SecurityLocked.TLabel", foreground=security_state_color("locked"))
         style.configure("SecurityUnlocked.TLabel", foreground=security_state_color("unlocked"))
@@ -903,6 +942,7 @@ class MainWindow(tk.Tk):
         self.progress = ttk.Progressbar(self.status_bar, mode="indeterminate", length=96)
 
     def update_security_status(self, locked: bool):
+        """Обновляет security status."""
         if not hasattr(self, "status_label"):
             return
         if locked:
@@ -911,6 +951,7 @@ class MainWindow(tk.Tk):
             self.status_label.configure(text="Status: unlocked", style="SecurityUnlocked.TLabel")
 
     def show_progress(self, message: str):
+        """Показывает progress."""
         self._loading_entries = True
         self.update_status(message)
         if hasattr(self, "progress") and not self.progress.winfo_ismapped():
@@ -918,6 +959,7 @@ class MainWindow(tk.Tk):
             self.progress.start(12)
 
     def hide_progress(self):
+        """Скрывает progress."""
         self._loading_entries = False
         if hasattr(self, "progress") and self.progress.winfo_ismapped():
             self.progress.stop()
@@ -938,14 +980,17 @@ class MainWindow(tk.Tk):
         )
 
     def show_friendly_error(self, error: Exception, context: str):
+        """Показывает friendly error."""
         message = friendly_error_message(error, context)
         self.update_status(message.title)
         messagebox.showerror(message.title, message.format(), parent=self)
 
     def add_entry(self):
+        """Добавляет entry."""
         EntryDialog(self, on_save=self._on_entry_save)
 
     def edit_selected(self):
+        """Описывает публичное действие edit selected."""
         selected = self.table.get_selected_entries()
         if not selected:
             messagebox.showinfo("Информация", "Выберите запись для редактирования")
@@ -954,6 +999,7 @@ class MainWindow(tk.Tk):
         self._open_entry_editor(selected[0])
 
     def delete_selected(self):
+        """Удаляет selected."""
         selected = self.table.get_selected_entries()
         if not selected:
             messagebox.showinfo("Информация", "Выберите записи для удаления")
@@ -971,6 +1017,7 @@ class MainWindow(tk.Tk):
             messagebox.showinfo("Успех", f"Удалено {count} записей")
 
     def copy_password(self):
+        """Копирует password."""
         selected = self.table.get_selected_entries()
         if not selected:
             messagebox.showinfo("Информация", "Выберите запись")
@@ -979,6 +1026,7 @@ class MainWindow(tk.Tk):
         self.copy_entry_field(selected[0], "password")
 
     def copy_username(self):
+        """Копирует username."""
         selected = self.table.get_selected_entries()
         if not selected:
             messagebox.showinfo("Информация", "Выберите запись")
@@ -987,6 +1035,7 @@ class MainWindow(tk.Tk):
         self.copy_entry_field(selected[0], "username")
 
     def copy_entry_field(self, entry: dict, field_name: str):
+        """Копирует entry field."""
         entry_id = entry.get("id")
         if not entry_id:
             self.show_clipboard_toast(f"Нет данных для копирования: {field_name}", warning=True)
@@ -1029,6 +1078,7 @@ class MainWindow(tk.Tk):
         EntryDialog(self, entry_data=full_entry, on_save=lambda data: self._on_entry_save(data, entry_id))
 
     def copy_entry_all(self, entry: dict):
+        """Копирует entry all."""
         entry_id = entry.get("id")
         if not entry_id:
             self.show_clipboard_toast("Нет данных для копирования", warning=True)
@@ -1077,21 +1127,25 @@ class MainWindow(tk.Tk):
                 self.load_entries()
 
     def show_change_password(self):
+        """Показывает change password."""
         ChangePasswordDialog(self, self.key_manager, self.entry_manager, self.encryption_service)
 
     def show_export_dialog(self):
+        """Показывает export dialog."""
         if not self.entry_manager:
             messagebox.showinfo("Экспорт", "Сначала разблокируйте хранилище.", parent=self)
             return
         ExportDialog(self, self.entry_manager, selected_entry_ids=self.table.get_selected_ids())
 
     def show_import_dialog(self):
+        """Показывает import dialog."""
         if not self.entry_manager:
             messagebox.showinfo("Импорт", "Сначала разблокируйте хранилище.", parent=self)
             return
         ImportDialog(self, self.entry_manager, on_import_complete=self.load_entries)
 
     def share_selected(self):
+        """Описывает публичное действие share selected."""
         selected = self.table.get_selected_entries()
         if not selected:
             messagebox.showinfo("Обмен", "Выберите запись, которой нужно поделиться.", parent=self)
@@ -1099,15 +1153,18 @@ class MainWindow(tk.Tk):
         self.show_sharing_dialog(selected[0].get("id"))
 
     def show_sharing_dialog(self, entry_id: str):
+        """Показывает sharing dialog."""
         if not entry_id:
             messagebox.showinfo("Обмен", "Не удалось определить выбранную запись.", parent=self)
             return
         SharingDialog(self, self.entry_manager, entry_id)
 
     def show_settings(self):
+        """Показывает settings."""
         SettingsDialog(self)
 
     def show_audit_window(self):
+        """Показывает audit window."""
         win = tk.Toplevel(self)
         win.title("Журнал аудита")
         win.geometry("1100x720")
@@ -1121,6 +1178,7 @@ class MainWindow(tk.Tk):
         viewer.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
     def highlight_entry_from_audit(self, entry_id: str):
+        """Описывает публичное действие highlight entry from audit."""
         if not entry_id:
             return
         if entry_id not in self.table.get_children():
@@ -1134,6 +1192,7 @@ class MainWindow(tk.Tk):
             messagebox.showinfo("Журнал аудита", f"Запись {entry_id} не найдена в текущем хранилище.", parent=self)
 
     def show_about(self):
+        """Показывает about."""
         messagebox.showinfo(
             "О программе",
             "CryptoSafe Manager\n"
@@ -1152,9 +1211,11 @@ class MainWindow(tk.Tk):
         self.table.toggle_password_visibility()
 
     def update_status(self, message: str):
+        """Обновляет status."""
         self.status_label.config(text=message)
 
     def refresh_clipboard_status(self):
+        """Описывает публичное действие refresh clipboard status."""
         if self._closing or not self.winfo_exists():
             return
         self._on_clipboard_status(self.clipboard_service.get_clipboard_status())
@@ -1219,6 +1280,7 @@ class MainWindow(tk.Tk):
         self.show_clipboard_toast(translate_error_text(message or f"Ошибка буфера обмена: {reason}"), warning=True)
 
     def show_clipboard_toast(self, message: str, warning: bool = False):
+        """Показывает clipboard toast."""
         if self._closing or not self.winfo_exists():
             return
         self.clipboard_label.config(text=message)
@@ -1236,6 +1298,7 @@ class MainWindow(tk.Tk):
         toast.after(2500, toast.destroy)
 
     def show_clipboard_preview(self):
+        """Показывает clipboard preview."""
         status = self.clipboard_service.get_clipboard_status()
         if not status.active:
             messagebox.showinfo("Буфер обмена", "Буфер обмена пуст.", parent=self)

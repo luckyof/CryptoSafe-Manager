@@ -27,6 +27,7 @@ class AuditLogVerifier:
         end_seq: Optional[int] = None,
         publish_on_tamper: bool = True,
     ) -> Dict[str, Any]:
+        """Проверяет integrity."""
         query = """
             SELECT sequence_number, entry_data, signature, entry_hash, previous_hash, public_key
             FROM audit_log

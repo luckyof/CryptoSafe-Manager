@@ -14,6 +14,7 @@ DEFAULT_GUARD_SIZE = 16
 
 @dataclass
 class SecureAllocation:
+    """Описывает публичный класс SecureAllocation."""
     buffer: bytearray
     size: int
     locked: bool
@@ -37,6 +38,7 @@ class SecureMemory:
         self._lock = threading.RLock()
 
     def allocate_secure(self, size: int) -> bytearray:
+        """Описывает публичное действие allocate secure."""
         if size < 0:
             raise ValueError("Secure allocation size must be non-negative")
         guard_size = DEFAULT_GUARD_SIZE if self.guard_pages_enabled else 0
@@ -70,6 +72,7 @@ class SecureMemory:
         return view
 
     def secure_zero(self, buffer, passes: int = 1) -> bool:
+        """Описывает публичное действие secure zero."""
         if buffer is None:
             return False
         passes = max(self.multi_pass_wipe_count, int(passes or 1))
@@ -103,6 +106,7 @@ class SecureMemory:
         return wiped
 
     def free_secure(self, buffer) -> bool:
+        """Описывает публичное действие free secure."""
         if buffer is None:
             return False
 
@@ -116,6 +120,7 @@ class SecureMemory:
         return bool(ok and wiped)
 
     def wipe_all(self) -> int:
+        """Описывает публичное действие wipe all."""
         with self._lock:
             allocations = list(self._allocations.items())
         count = 0
@@ -128,10 +133,12 @@ class SecureMemory:
         return count
 
     def get_allocation(self, buffer) -> Optional[SecureAllocation]:
+        """Возвращает данные для allocation."""
         with self._lock:
             return self._allocations.get(id(buffer))
 
     def verify_canary(self, buffer) -> bool:
+        """Проверяет canary."""
         allocation = self.get_allocation(buffer)
         if not allocation or not self.canary_enabled:
             return True
@@ -154,6 +161,7 @@ class SecureMemory:
         return intact
 
     def lock_buffer(self, buffer) -> bool:
+        """Описывает публичное действие lock buffer."""
         if not self.enabled or not self.lock_memory_enabled or not buffer:
             return False
         address = self._buffer_address(buffer)
@@ -162,6 +170,7 @@ class SecureMemory:
         return self.lock_address(address, len(buffer))
 
     def unlock_buffer(self, buffer) -> bool:
+        """Описывает публичное действие unlock buffer."""
         if not buffer:
             return False
         address = self._buffer_address(buffer)
@@ -170,6 +179,7 @@ class SecureMemory:
         return self.unlock_address(address, len(buffer))
 
     def lock_address(self, address: int, size: int) -> bool:
+        """Описывает публичное действие lock address."""
         try:
             if sys.platform == "win32":
                 return bool(ctypes.windll.kernel32.VirtualLock(ctypes.c_void_p(address), ctypes.c_size_t(size)))
@@ -180,6 +190,7 @@ class SecureMemory:
             return False
 
     def unlock_address(self, address: int, size: int) -> bool:
+        """Описывает публичное действие unlock address."""
         try:
             if sys.platform == "win32":
                 return bool(ctypes.windll.kernel32.VirtualUnlock(ctypes.c_void_p(address), ctypes.c_size_t(size)))
@@ -198,6 +209,7 @@ class SecureMemory:
 
     @staticmethod
     def wipe_immutable_bytes(value: bytes) -> bool:
+        """Описывает публичное действие wipe immutable bytes."""
         if not isinstance(value, bytes):
             return False
         try:
@@ -210,6 +222,7 @@ class SecureMemory:
 
     @staticmethod
     def wipe_compact_ascii_string(value: str) -> bool:
+        """Описывает публичное действие wipe compact ascii string."""
         if not isinstance(value, str) or not value.isascii():
             return False
         try:
@@ -265,12 +278,15 @@ class SecureByteArray(bytearray):
         return self._size > 0
 
     def clear(self):
+        """Описывает публичное действие clear."""
         self._memory.secure_zero(self)
 
     def wipe(self):
+        """Описывает публичное действие wipe."""
         self._memory.free_secure(self)
 
     def to_bytearray(self) -> bytearray:
+        """Описывает публичное действие to bytearray."""
         return bytearray(bytes(self))
 
     def _translate_key(self, key):
@@ -293,9 +309,11 @@ class SecretBuffer:
         self.buffer[:] = data
 
     def bytes(self) -> bytes:
+        """Описывает публичное действие bytes."""
         return bytes(self.buffer)
 
     def wipe(self):
+        """Описывает публичное действие wipe."""
         self.memory.free_secure(self.buffer)
 
     def __enter__(self):
@@ -319,9 +337,11 @@ class StackCanary:
         self._expected = bytes(self._value)
 
     def verify(self) -> bool:
+        """Описывает публичное действие verify."""
         return secrets.compare_digest(self._value, self._expected)
 
     def corrupt_for_test(self):
+        """Описывает публичное действие corrupt for test."""
         self._value = b"\x00" * CANARY_SIZE
 
 
@@ -335,11 +355,13 @@ class SensitiveScope:
         self._buffers = []
 
     def buffer(self, data: bytes) -> SecretBuffer:
+        """Описывает публичное действие buffer."""
         secret = SecretBuffer(data, memory=self.memory)
         self._buffers.append(secret)
         return secret
 
     def register(self, buffer):
+        """Описывает публичное действие register."""
         self._buffers.append(buffer)
         return buffer
 
@@ -370,8 +392,10 @@ _secure_memory = SecureMemory()
 
 
 def get_secure_memory() -> SecureMemory:
+    """Возвращает данные для secure memory."""
     return _secure_memory
 
 
 def sensitive_scope(label: str = "critical", memory: Optional[SecureMemory] = None) -> SensitiveScope:
+    """Описывает публичную операцию sensitive scope."""
     return SensitiveScope(memory=memory, label=label)

@@ -20,6 +20,7 @@ class PasswordEntry(ttk.Frame):
         self.toggle_btn.pack(side=tk.RIGHT, padx=(5, 0))
 
     def toggle_visibility(self):
+        """Описывает публичное действие toggle visibility."""
         if self.show_var.get():
             self.entry.config(show="")
             self.show_var.set(False)
@@ -28,8 +29,10 @@ class PasswordEntry(ttk.Frame):
             self.show_var.set(True)
 
     def get(self):
+        """Описывает публичное действие get."""
         return self.entry.get()
 
     def set(self, value):
+        """Описывает публичное действие set."""
         self.entry.delete(0, tk.END)
         self.entry.insert(0, value)

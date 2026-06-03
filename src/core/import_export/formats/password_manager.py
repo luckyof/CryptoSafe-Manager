@@ -20,9 +20,11 @@ BITWARDEN_DEFAULT_KDF_ITERATIONS = 600_000
 
 
 class PasswordManagerFormatHandler:
+    """Описывает публичный класс PasswordManagerFormatHandler."""
     format_name = "password_manager_json"
 
     def serialize_bitwarden(self, entries: Iterable[Dict], include_fields: Optional[List[str]] = None) -> bytes:
+        """Описывает публичное действие serialize bitwarden."""
         selected = set(include_fields or [])
         entry_list = list(entries)
         folder_ids = {}
@@ -75,6 +77,7 @@ class PasswordManagerFormatHandler:
         include_fields: Optional[List[str]] = None,
         iterations: int = BITWARDEN_DEFAULT_KDF_ITERATIONS,
     ) -> bytes:
+        """Описывает публичное действие serialize bitwarden encrypted."""
         if not password:
             raise ValueError("Bitwarden encrypted JSON export requires encryption_password.")
         plaintext = self.serialize_bitwarden(entries, include_fields)
@@ -94,6 +97,7 @@ class PasswordManagerFormatHandler:
         return json.dumps(package, ensure_ascii=False, sort_keys=True, indent=2).encode("utf-8")
 
     def serialize_lastpass_json(self, entries: Iterable[Dict], include_fields: Optional[List[str]] = None) -> bytes:
+        """Описывает публичное действие serialize lastpass json."""
         selected = set(include_fields or [])
         rows = []
         for entry in entries:
@@ -110,6 +114,7 @@ class PasswordManagerFormatHandler:
         return json.dumps(rows, ensure_ascii=False, sort_keys=True, indent=2).encode("utf-8")
 
     def serialize_lastpass_csv(self, entries: Iterable[Dict], include_fields: Optional[List[str]] = None) -> bytes:
+        """Описывает публичное действие serialize lastpass csv."""
         selected = set(include_fields or [])
         output = io.StringIO(newline="")
         fieldnames = ["url", "username", "password", "extra", "name", "grouping"]

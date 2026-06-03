@@ -39,6 +39,7 @@ SENSITIVE_FIELDS = {"password", "totp_secret"}
 
 @dataclass
 class ExportOptions:
+    """Описывает публичный класс ExportOptions."""
     format: str = "encrypted_json"
     entry_ids: Optional[List[str]] = None
     include_fields: Optional[List[str]] = None
@@ -56,6 +57,7 @@ class ExportOptions:
 
 @dataclass
 class ExportResult:
+    """Описывает публичный класс ExportResult."""
     format: str
     content: bytes
     checksum: str
@@ -65,6 +67,7 @@ class ExportResult:
 
 
 class VaultExporter:
+    """Описывает публичный класс VaultExporter."""
     def __init__(self, entry_manager, db_connection=None, bus=event_bus):
         self.entry_manager = entry_manager
         self.db = db_connection or getattr(entry_manager, "db", None)
@@ -78,6 +81,7 @@ class VaultExporter:
             self.bus.subscribe("PanicModeActivated", self._handle_panic_interrupt)
 
     def export(self, options: Optional[ExportOptions] = None) -> ExportResult:
+        """Экспортирует данные в выбранном формате."""
         options = options or ExportOptions()
         self._panic_interrupted = False
         self._validate_options(options)
@@ -131,6 +135,7 @@ class VaultExporter:
             raise
 
     def export_to_file(self, path: str, options: Optional[ExportOptions] = None) -> ExportResult:
+        """Описывает публичное действие export to file."""
         result = self.export(options)
         target = Path(path)
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -157,6 +162,7 @@ class VaultExporter:
         return result
 
     def export_by_query(self, query: str, options: Optional[ExportOptions] = None) -> ExportResult:
+        """Описывает публичное действие export by query."""
         if not hasattr(self.entry_manager, "search_entries"):
             raise RuntimeError("EntryManager with search_entries is required for query export.")
         matched_entries = self.entry_manager.search_entries(query or "")

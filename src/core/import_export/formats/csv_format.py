@@ -6,6 +6,7 @@ from .specifications import CSVFormatSpec
 
 
 class CSVFormatHandler:
+    """Описывает публичный класс CSVFormatHandler."""
     format_name = "csv"
     spec = CSVFormatSpec()
     fields = list(spec.fields)
@@ -16,6 +17,7 @@ class CSVFormatHandler:
         include_fields: Optional[List[str]] = None,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> bytes:
+        """Описывает публичное действие serialize."""
         selected_fields = include_fields or self.fields
         self.spec.validate_header(selected_fields, require_required=False)
         output = io.StringIO(newline="")

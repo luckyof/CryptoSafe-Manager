@@ -34,6 +34,7 @@ class AuditLogExporter:
         encrypt: bool = True,
         confirm_password: Optional[Callable[[], bool]] = None,
     ) -> Dict[str, Any]:
+        """Экспортирует данные в выбранном формате."""
         export_format = self._normalize_format(export_format)
         if confirm_password is None or not confirm_password():
             raise PermissionError("Export requires master password confirmation.")
@@ -66,6 +67,7 @@ class AuditLogExporter:
         retention_days: int = 30,
         enabled: bool = True,
     ) -> int:
+        """Создает schedule."""
         export_format = self._normalize_format(export_format)
         frequency = self._normalize_frequency(frequency)
         next_run_at = self._next_run_at(frequency)
@@ -79,6 +81,7 @@ class AuditLogExporter:
         )
 
     def due_schedules(self, now: Optional[datetime] = None):
+        """Описывает публичное действие due schedules."""
         now = now or datetime.now(timezone.utc)
         return self.db.fetchall(
             """
@@ -95,6 +98,7 @@ class AuditLogExporter:
         confirm_password: Optional[Callable[[], bool]] = None,
         now: Optional[datetime] = None,
     ):
+        """Описывает публичное действие run due schedules."""
         now = now or datetime.now(timezone.utc)
         results = []
         for schedule_id, name, export_format, frequency, output_dir, retention_days in self.due_schedules(now):
@@ -120,6 +124,7 @@ class AuditLogExporter:
         return results
 
     def cleanup_old_exports(self, export_dir: str, retention_days: int) -> int:
+        """Описывает публичное действие cleanup old exports."""
         if not os.path.isdir(export_dir):
             return 0
 

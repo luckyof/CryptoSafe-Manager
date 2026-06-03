@@ -19,6 +19,7 @@ class SecureMemoryCache:
         self._memory = SecureMemory(config)
 
     def store_key(self, key: bytes):
+        """Описывает публичное действие store key."""
         if self._key:
             self.clear_key()
         if not isinstance(key, (bytes, bytearray, memoryview)):
@@ -31,11 +32,13 @@ class SecureMemoryCache:
         self._memory.secure_zero(key_bytes)
 
     def get_key(self) -> bytes:
+        """Возвращает данные для key."""
         if self._key:
             return bytes(self._key)
         return None
 
     def clear_key(self):
+        """Очищает key."""
         if self._key:
             self._memory.free_secure(self._key)
             self._key = None

@@ -18,6 +18,7 @@ class VaultManager:
         self.crypto = encryption_service
 
     def add_entry(self, title: str, username: str, password: str, url: str = "", notes: str = ""):
+        """Добавляет entry."""
         now = _now_iso()
         payload = {
             "title": title,
@@ -41,6 +42,7 @@ class VaultManager:
         self.db.execute(query, (entry_id, encrypted_blob, now, now, "[]"))
 
     def get_all_entries(self) -> List[Dict]:
+        """Возвращает данные для all entries."""
         rows = self.db.fetchall("SELECT id, encrypted_data FROM vault_entries")
         result = []
         for row in rows:
@@ -64,8 +66,10 @@ class VaultManager:
         return result
 
     def get_all_entries_raw(self) -> List[Dict]:
+        """Возвращает данные для all entries raw."""
         rows = self.db.fetchall("SELECT id, encrypted_data FROM vault_entries")
         return [{"id": r[0], "enc_data": r[1]} for r in rows]
 
     def update_entry_password(self, entry_id: int, new_encrypted_data: bytes):
+        """Обновляет entry password."""
         self.db.execute("UPDATE vault_entries SET encrypted_data = ? WHERE id = ?", (new_encrypted_data, entry_id))

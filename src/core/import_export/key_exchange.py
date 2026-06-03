@@ -24,6 +24,7 @@ SUPPORTED_QR_TYPES = {"public_key", "encrypted_entry", "share_link"}
 
 @dataclass
 class KeyPair:
+    """Описывает публичный класс KeyPair."""
     private_key_pem: bytes
     public_key_pem: bytes
     fingerprint: str
@@ -32,6 +33,7 @@ class KeyPair:
 
 @dataclass
 class QRChunk:
+    """Описывает публичный класс QRChunk."""
     index: int
     total: int
     encoded_text: str
@@ -41,6 +43,7 @@ class QRChunk:
 
 @dataclass
 class QRCodeBundle:
+    """Описывает публичный класс QRCodeBundle."""
     payload_id: str
     payload_type: str
     expires_at: str
@@ -49,6 +52,7 @@ class QRCodeBundle:
 
 
 class QRCodeValidationError(ValueError):
+    """Описывает публичный класс QRCodeValidationError."""
     pass
 
 
@@ -61,6 +65,7 @@ class KeyExchangeService:
         self._seen_nonces = set()
 
     def generate_rsa_key_pair(self, key_size: int = 2048) -> KeyPair:
+        """Описывает публичное действие generate rsa key pair."""
         if key_size < 2048:
             raise ValueError("RSA key_size must be at least 2048 bits")
         private_key = rsa.generate_private_key(public_exponent=65537, key_size=key_size)
@@ -76,6 +81,7 @@ class KeyExchangeService:
         return KeyPair(private_pem, public_pem, self.fingerprint(public_pem), f"RSA-{key_size}")
 
     def generate_ecc_key_pair(self) -> KeyPair:
+        """Описывает публичное действие generate ecc key pair."""
         private_key = ec.generate_private_key(ec.SECP256R1())
         private_pem = private_key.private_bytes(
             encoding=serialization.Encoding.PEM,
@@ -90,6 +96,7 @@ class KeyExchangeService:
 
     @staticmethod
     def fingerprint(public_key_pem: bytes) -> str:
+        """Описывает публичное действие fingerprint."""
         digest = hashlib.sha256(public_key_pem).digest()
         return base64.b32encode(digest[:20]).decode("ascii").rstrip("=")
 
@@ -102,6 +109,7 @@ class KeyExchangeService:
         algorithm: Optional[str] = None,
         verified: bool = False,
     ) -> int:
+        """Описывает публичное действие store contact key."""
         fingerprint = self.fingerprint(public_key_pem)
         algorithm = algorithm or self.detect_public_key_algorithm(public_key_pem)
         contact_id = db_connection.execute(
@@ -127,6 +135,7 @@ class KeyExchangeService:
         return contact_id
 
     def list_contacts(self, db_connection=None, include_revoked: bool = False) -> List[Dict[str, Any]]:
+        """Описывает публичное действие list contacts."""
         db = db_connection or self.db
         if not db:
             return []
@@ -160,6 +169,7 @@ class KeyExchangeService:
         ]
 
     def verify_contact_fingerprint(self, contact_id: int, fingerprint: str, db_connection=None) -> bool:
+        """Проверяет contact fingerprint."""
         db = db_connection or self.db
         if not db:
             raise RuntimeError("Database connection is required.")
@@ -173,6 +183,7 @@ class KeyExchangeService:
         return verified
 
     def revoke_contact_key(self, contact_id: int, db_connection=None) -> bool:
+        """Описывает публичное действие revoke contact key."""
         db = db_connection or self.db
         if not db:
             raise RuntimeError("Database connection is required.")
@@ -190,6 +201,7 @@ class KeyExchangeService:
         db_connection=None,
         algorithm: Optional[str] = None,
     ) -> int:
+        """Описывает публичное действие rotate contact key."""
         db = db_connection or self.db
         if not db:
             raise RuntimeError("Database connection is required.")
@@ -203,6 +215,7 @@ class KeyExchangeService:
         return new_id
 
     def get_active_public_key(self, contact_id: int, db_connection=None) -> Optional[bytes]:
+        """Возвращает данные для active public key."""
         db = db_connection or self.db
         if not db:
             return None
@@ -214,6 +227,7 @@ class KeyExchangeService:
 
     @staticmethod
     def detect_public_key_algorithm(public_key_pem: bytes) -> str:
+        """Описывает публичное действие detect public key algorithm."""
         public_key = serialization.load_pem_public_key(public_key_pem)
         if isinstance(public_key, rsa.RSAPublicKey):
             return f"RSA-{public_key.key_size}"
@@ -228,6 +242,7 @@ class KeyExchangeService:
         identifier: Optional[str] = None,
         ttl_seconds: int = QR_DEFAULT_TTL_SECONDS,
     ) -> Dict[str, Any]:
+        """Создает public key payload."""
         self._validate_ttl(ttl_seconds)
         now = datetime.now(timezone.utc)
         return {
@@ -249,6 +264,7 @@ class KeyExchangeService:
         share_package_content: bytes,
         ttl_seconds: int = QR_DEFAULT_TTL_SECONDS,
     ) -> Dict[str, Any]:
+        """Создает encrypted entry payload."""
         self._validate_ttl(ttl_seconds)
         now = datetime.now(timezone.utc)
         encoded = base64.b64encode(share_package_content).decode("ascii")
@@ -269,6 +285,7 @@ class KeyExchangeService:
         url: str,
         ttl_seconds: int = QR_DEFAULT_TTL_SECONDS,
     ) -> Dict[str, Any]:
+        """Создает share link payload."""
         self._validate_ttl(ttl_seconds)
         now = datetime.now(timezone.utc)
         return {
@@ -288,6 +305,7 @@ class KeyExchangeService:
         chunk_size: int = QR_DEFAULT_CHUNK_SIZE,
         render_svg: bool = True,
     ) -> QRCodeBundle:
+        """Описывает публичное действие generate qr codes."""
         self.validate_qr_payload(payload, mark_seen=False)
         canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
         compressed = zlib.compress(canonical)
@@ -324,6 +342,7 @@ class KeyExchangeService:
         return bundle
 
     def decode_qr_chunks(self, encoded_chunks: List[str], allow_replay: bool = False) -> Dict[str, Any]:
+        """Описывает публичное действие decode qr chunks."""
         parsed_chunks = []
         payload_id = None
         payload_checksum = None
@@ -367,6 +386,7 @@ class KeyExchangeService:
         return payload
 
     def decode_qr_chunks_from_clipboard(self, clipboard_service, allow_replay: bool = False) -> Dict[str, Any]:
+        """Описывает публичное действие decode qr chunks from clipboard."""
         if not clipboard_service or not hasattr(clipboard_service, "platform"):
             raise RuntimeError("ClipboardService integration is required for clipboard QR import.")
         text = clipboard_service.platform.get_clipboard_content()
@@ -398,6 +418,7 @@ class KeyExchangeService:
         return [line.strip() for line in value.splitlines() if line.strip()]
 
     def validate_qr_payload(self, payload: Dict[str, Any], mark_seen: bool = True) -> bool:
+        """Проверяет qr payload."""
         if not isinstance(payload, dict):
             raise QRCodeValidationError("QR payload must be an object.")
         if payload.get("version") != QR_PAYLOAD_VERSION:
@@ -436,6 +457,7 @@ class KeyExchangeService:
         return True
 
     def import_public_key_payload(self, payload: Dict[str, Any], db_connection=None, verified: bool = False) -> int:
+        """Описывает публичное действие import public key payload."""
         self.validate_qr_payload(payload, mark_seen=False)
         if payload["type"] != "public_key":
             raise QRCodeValidationError("QR payload is not a public key.")
@@ -452,6 +474,7 @@ class KeyExchangeService:
         )
 
     def decode_qr_image_file(self, image_path: str) -> List[str]:
+        """Описывает публичное действие decode qr image file."""
         try:
             from PIL import Image
             from pyzbar.pyzbar import decode
@@ -461,6 +484,7 @@ class KeyExchangeService:
         return [item.data.decode("utf-8") for item in decode(image)]
 
     def scan_from_camera(self) -> List[str]:
+        """Описывает публичное действие scan from camera."""
         try:
             import cv2
         except Exception as exc:

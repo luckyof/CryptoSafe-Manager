@@ -19,6 +19,7 @@ AUDIT_SIGNING_PURPOSE = "audit-signing"
 
 
 class KeyManager:
+    """Управляет мастер-ключом, сессией и блокировкой хранилища."""
     def __init__(self, db_helper: 'DatabaseHelper', config: dict = None):
         self.db = db_helper
         self.config = config or {}
@@ -77,6 +78,7 @@ class KeyManager:
                 self._start_auto_lock_timer()
 
     def setup_new_vault(self, password: str) -> bool:
+        """Описывает публичное действие setup new vault."""
         try:
             auth_hash = self.derivation.create_auth_hash(password)
             enc_salt = self.derivation.generate_salt()
@@ -145,6 +147,7 @@ class KeyManager:
         self._check_and_lock_if_needed()
 
     def derive_key(self, purpose: str, length: int = 32) -> bytes:
+        """Описывает публичное действие derive key."""
         base_key = self.storage.get_key()
         if base_key is None:
             raise RuntimeError("Vault key is not available. Unlock the vault first.")
@@ -173,6 +176,7 @@ class KeyManager:
 
     def change_password(self, old_password: str, new_password: str, entry_manager: 'EntryManager', crypto_service) -> bool:
         # 1. Валидация нового пароля ПЕРЕД любыми операциями
+        """Описывает публичное действие change password."""
         valid, msg = self.auth.validate_password_strength(new_password)
         if not valid:
             raise ValueError(msg)

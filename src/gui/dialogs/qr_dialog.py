@@ -3,6 +3,7 @@ from tkinter import ttk, messagebox
 
 
 class QRCodeDialog(tk.Toplevel):
+    """Описывает публичный класс QRCodeDialog."""
     def __init__(self, parent, bundle):
         super().__init__(parent)
         self.bundle = bundle

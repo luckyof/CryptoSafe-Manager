@@ -28,6 +28,7 @@ class SetupWizard(tk.Toplevel):
         self.grab_set()
 
     def create_widgets(self):
+        """Создает widgets."""
         notebook = ttk.Notebook(self)
         notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
@@ -66,11 +67,13 @@ class SetupWizard(tk.Toplevel):
         ttk.Button(btn_frame, text="Готово", command=self.on_complete).pack(side=tk.RIGHT)
 
     def browse_db(self):
+        """Описывает публичное действие browse db."""
         path = filedialog.asksaveasfilename(defaultextension=".db", filetypes=[("SQLite DB", "*.db")])
         if path:
             self.db_path_var.set(path)
 
     def on_complete(self):
+        """Описывает публичное действие on complete."""
         path = self.db_path_var.get()
         p1 = self.pass_entry.get()
         p2 = self.pass_confirm.get()

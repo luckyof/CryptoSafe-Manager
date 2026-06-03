@@ -13,6 +13,7 @@ logger = logging.getLogger("ClipboardAdapter")
 
 @dataclass(frozen=True)
 class ClipboardAccessInfo:
+    """Описывает публичный класс ClipboardAccessInfo."""
     content: Optional[str]
     backend_name: str
     sequence_number: Optional[int] = None
@@ -24,6 +25,7 @@ class ClipboardAccessInfo:
 class ClipboardAdapter(ABC):
 
 
+    """Описывает публичный класс ClipboardAdapter."""
     backend_name = "abstract"
 
     @abstractmethod
@@ -39,6 +41,7 @@ class ClipboardAdapter(ABC):
         """Вернуть текущий текст из буфера обмена, если он доступен."""
 
     def get_access_info(self) -> ClipboardAccessInfo:
+        """Возвращает данные для access info."""
         try:
             return ClipboardAccessInfo(
                 content=self.get_clipboard_content(),
@@ -56,6 +59,7 @@ class ClipboardAdapter(ABC):
 class WindowsClipboardAdapter(ClipboardAdapter):
 
 
+    """Описывает публичный класс WindowsClipboardAdapter."""
     backend_name = "windows-win32clipboard"
 
     def __init__(self):
@@ -72,6 +76,7 @@ class WindowsClipboardAdapter(ClipboardAdapter):
             self.win32clipboard.CloseClipboard()
 
     def copy_to_clipboard(self, data: str) -> bool:
+        """Копирует to clipboard."""
         try:
             with self._open_clipboard():
                 self.win32clipboard.EmptyClipboard()
@@ -82,6 +87,7 @@ class WindowsClipboardAdapter(ClipboardAdapter):
             return False
 
     def clear_clipboard(self) -> bool:
+        """Очищает clipboard."""
         try:
             with self._open_clipboard():
                 self.win32clipboard.EmptyClipboard()
@@ -91,6 +97,7 @@ class WindowsClipboardAdapter(ClipboardAdapter):
             return False
 
     def get_clipboard_content(self) -> Optional[str]:
+        """Возвращает данные для clipboard content."""
         try:
             with self._open_clipboard():
                 if not self.win32clipboard.IsClipboardFormatAvailable(self.win32clipboard.CF_UNICODETEXT):
@@ -101,6 +108,7 @@ class WindowsClipboardAdapter(ClipboardAdapter):
             return None
 
     def get_access_info(self) -> ClipboardAccessInfo:
+        """Возвращает данные для access info."""
         sequence_number = self._get_sequence_number()
         owner_handle = self._get_open_clipboard_window()
         try:
@@ -149,6 +157,7 @@ class WindowsClipboardAdapter(ClipboardAdapter):
 class MacOSClipboardAdapter(ClipboardAdapter):
 
 
+    """Описывает публичный класс MacOSClipboardAdapter."""
     backend_name = "macos-nspasteboard"
 
     def __init__(self):
@@ -159,6 +168,7 @@ class MacOSClipboardAdapter(ClipboardAdapter):
         self.pasteboard = NSPasteboard.generalPasteboard()
 
     def copy_to_clipboard(self, data: str) -> bool:
+        """Копирует to clipboard."""
         try:
             self.pasteboard.declareTypes_owner_([self.NSPasteboardTypeString], None)
             return bool(self.pasteboard.setString_forType_(data, self.NSPasteboardTypeString))
@@ -167,6 +177,7 @@ class MacOSClipboardAdapter(ClipboardAdapter):
             return False
 
     def clear_clipboard(self) -> bool:
+        """Очищает clipboard."""
         try:
             self.pasteboard.clearContents()
             return True
@@ -175,6 +186,7 @@ class MacOSClipboardAdapter(ClipboardAdapter):
             return False
 
     def get_clipboard_content(self) -> Optional[str]:
+        """Возвращает данные для clipboard content."""
         try:
             value = self.pasteboard.stringForType_(self.NSPasteboardTypeString)
             return str(value) if value is not None else None
@@ -185,6 +197,7 @@ class MacOSClipboardAdapter(ClipboardAdapter):
 
 class LinuxClipboardAdapter(ClipboardAdapter):
 
+    """Описывает публичный класс LinuxClipboardAdapter."""
     backend_name = "linux-command"
 
     def __init__(self, selection: str = "clipboard"):
@@ -197,6 +210,7 @@ class LinuxClipboardAdapter(ClipboardAdapter):
         self.backend_name = f"linux-{self.backend}-{self.selection}"
 
     def copy_to_clipboard(self, data: str) -> bool:
+        """Копирует to clipboard."""
         try:
             subprocess.run(
                 self._copy_cmd,
@@ -212,9 +226,11 @@ class LinuxClipboardAdapter(ClipboardAdapter):
             return False
 
     def clear_clipboard(self) -> bool:
+        """Очищает clipboard."""
         return self.copy_to_clipboard("")
 
     def get_clipboard_content(self) -> Optional[str]:
+        """Возвращает данные для clipboard content."""
         try:
             result = subprocess.run(
                 self._paste_cmd,
@@ -280,6 +296,7 @@ class LinuxClipboardAdapter(ClipboardAdapter):
 
 class PyperclipClipboardAdapter(ClipboardAdapter):
 
+    """Описывает публичный класс PyperclipClipboardAdapter."""
     backend_name = "pyperclip"
 
     def __init__(self):
@@ -288,6 +305,7 @@ class PyperclipClipboardAdapter(ClipboardAdapter):
         self.pyperclip = pyperclip
 
     def copy_to_clipboard(self, data: str) -> bool:
+        """Копирует to clipboard."""
         try:
             self.pyperclip.copy(data)
             return True
@@ -296,9 +314,11 @@ class PyperclipClipboardAdapter(ClipboardAdapter):
             return False
 
     def clear_clipboard(self) -> bool:
+        """Очищает clipboard."""
         return self.copy_to_clipboard("")
 
     def get_clipboard_content(self) -> Optional[str]:
+        """Возвращает данные для clipboard content."""
         try:
             return self.pyperclip.paste()
         except Exception as exc:
@@ -308,24 +328,29 @@ class PyperclipClipboardAdapter(ClipboardAdapter):
 
 class InMemoryClipboardAdapter(ClipboardAdapter):
 
+    """Описывает публичный класс InMemoryClipboardAdapter."""
     backend_name = "in-memory"
 
     def __init__(self):
         self.content = ""
 
     def copy_to_clipboard(self, data: str) -> bool:
+        """Копирует to clipboard."""
         self.content = data
         return True
 
     def clear_clipboard(self) -> bool:
+        """Очищает clipboard."""
         self.content = ""
         return True
 
     def get_clipboard_content(self) -> Optional[str]:
+        """Возвращает данные для clipboard content."""
         return self.content
 
 
 def get_default_clipboard_adapter() -> ClipboardAdapter:
+    """Возвращает данные для default clipboard adapter."""
     system = platform.system()
     adapter_classes = []
 

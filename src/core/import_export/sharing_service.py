@@ -32,11 +32,13 @@ MAX_EXPIRATION_DAYS = 30
 
 
 class ShareValidationError(ValueError):
+    """Описывает публичный класс ShareValidationError."""
     pass
 
 
 @dataclass
 class ShareOptions:
+    """Описывает публичный класс ShareOptions."""
     method: str = "password"
     recipient_info: str = ""
     password: Optional[str] = None
@@ -50,6 +52,7 @@ class ShareOptions:
 
 @dataclass
 class ShareMetadata:
+    """Описывает публичный класс ShareMetadata."""
     shared_id: str
     original_entry_id: str
     encryption_method: str
@@ -60,6 +63,7 @@ class ShareMetadata:
 
 @dataclass
 class SharePackage:
+    """Описывает публичный класс SharePackage."""
     shared_id: str
     content: bytes
     encryption_method: str
@@ -70,6 +74,7 @@ class SharePackage:
 
 @dataclass
 class SharedEntryResult:
+    """Описывает публичный класс SharedEntryResult."""
     shared_id: str
     entry: Dict[str, Any]
     metadata: Dict[str, Any]
@@ -78,6 +83,7 @@ class SharedEntryResult:
 
 
 class SharingService:
+    """Описывает публичный класс SharingService."""
     def __init__(self, entry_manager=None, db_connection=None, bus=event_bus):
         self.entry_manager = entry_manager
         self.db = db_connection or getattr(entry_manager, "db", None)
@@ -85,6 +91,7 @@ class SharingService:
         self.share_spec = SharedEntryFormatSpec()
 
     def share_entry(self, entry_id: str, options: Optional[ShareOptions] = None) -> SharePackage:
+        """Описывает публичное действие share entry."""
         options = options or ShareOptions()
         try:
             self._validate_share_options(options)
@@ -159,6 +166,7 @@ class SharingService:
         private_key_pem: Optional[bytes] = None,
         allow_expired: bool = False,
     ) -> SharedEntryResult:
+        """Описывает публичное действие decrypt share package."""
         package = self._load_share_package(content)
         encryption = package["encryption"]
         encrypted_payload = {"encryption": encryption, "data": package["data"]}
@@ -213,6 +221,7 @@ class SharingService:
         save_to_vault: bool = True,
         allow_expired: bool = False,
     ) -> SharedEntryResult:
+        """Описывает публичное действие import shared entry."""
         result = self.decrypt_share_package(content, password, private_key_pem, allow_expired)
         if not save_to_vault:
             self.bus.publish("EntryShareImported", data={"share_id": result.shared_id, "saved": False})
@@ -241,6 +250,7 @@ class SharingService:
         expires_in_days: int = 7,
         shared_id: Optional[str] = None,
     ) -> ShareMetadata:
+        """Создает share record."""
         permissions = permissions or {"read": True, "edit": False}
         shared_id = shared_id or str(uuid.uuid4())
         expires_at = permissions.get("expiration") or (
@@ -265,6 +275,7 @@ class SharingService:
         return ShareMetadata(shared_id, entry_id, encryption_method, recipient_info, permissions, expires_at)
 
     def build_share_link(self, shared_id: str, base_url: str, expires_at: Optional[str] = None) -> str:
+        """Описывает публичное действие build share link."""
         if not shared_id:
             raise ValueError("shared_id is required for share link.")
         if not base_url or not str(base_url).startswith(("https://", "http://localhost", "http://127.0.0.1")):
@@ -275,6 +286,7 @@ class SharingService:
         return f"{base}/share/{quote(str(shared_id), safe='')}{suffix}"
 
     def copy_share_link_to_clipboard(self, clipboard_service, share_link: str, shared_id: Optional[str] = None) -> bool:
+        """Копирует share link to clipboard."""
         if not clipboard_service or not hasattr(clipboard_service, "copy_text"):
             raise RuntimeError("ClipboardService integration is required to copy share links.")
         copied = clipboard_service.copy_text(share_link, source_entry_id=shared_id)

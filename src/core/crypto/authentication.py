@@ -108,18 +108,22 @@ class SessionManager:
 
 
 class AuthenticationService:
+    """Описывает публичный класс AuthenticationService."""
     def __init__(self):
         self.session = SessionManager()
 
     @property
     def failed_attempts(self) -> int:
+        """Описывает публичное действие failed attempts."""
         return self.session.failed_attempts
 
     @property
     def last_failed_time(self) -> float:
+        """Описывает публичное действие last failed time."""
         return self.session.last_failed_time
 
     def validate_password_strength(self, password: str) -> Tuple[bool, str]:
+        """Проверяет password strength."""
         if len(password) < 12:
             return False, "Минимальная длина пароля: 12 символов."
         
@@ -144,6 +148,7 @@ class AuthenticationService:
         return True, "Пароль надежный."
 
     def get_backoff_delay(self) -> float:
+        """Возвращает данные для backoff delay."""
         if self.session.failed_attempts >= 5:
             return 30.0
         elif self.session.failed_attempts >= 3:
@@ -153,9 +158,11 @@ class AuthenticationService:
         return 0.0
 
     def register_failed_attempt(self):
+        """Описывает публичное действие register failed attempt."""
         self.session.register_failed_attempt()
 
     def reset_attempts(self):
+        """Описывает публичное действие reset attempts."""
         self.session.reset_failed_attempts()
 
     def start_session(self):
@@ -192,6 +199,7 @@ class AuthenticationService:
 
     def is_locked_out(self) -> bool:
         # Сброс счетчика после долгого перерыва
+        """Описывает публичное действие is locked out."""
         if self.session.failed_attempts > 0 and (time.time() - self.session.last_failed_time > LOCKOUT_WINDOW_SECONDS):
             self.session.reset_failed_attempts()
             return False
@@ -202,6 +210,7 @@ class AuthenticationService:
         return False
 
     def get_remaining_lockout_time(self) -> int:
+        """Возвращает данные для remaining lockout time."""
         delay = self.get_backoff_delay()
         elapsed = time.time() - self.session.last_failed_time
         return max(0, int(delay - elapsed))

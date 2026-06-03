@@ -28,6 +28,7 @@ LOCK_CLEAR_EVENTS = ("UserLoggedOut", "VaultLocked", "ApplicationLocked", "Sessi
 
 @dataclass(frozen=True)
 class ClipboardStatus:
+    """Описывает публичный класс ClipboardStatus."""
     active: bool
     data_type: Optional[str] = None
     source_entry_id: Optional[str] = None
@@ -40,6 +41,7 @@ class ClipboardStatus:
 
 class SecureClipboardItem:
 
+    """Описывает публичный класс SecureClipboardItem."""
     def __init__(self, data: str, data_type: str, source_entry_id: Optional[str]):
         self.data_type = data_type
         self.source_entry_id = source_entry_id
@@ -56,6 +58,7 @@ class SecureClipboardItem:
         self._lock_memory()
 
     def reveal(self) -> str:
+        """Описывает публичное действие reveal."""
         plaintext = self._xor_bytes(self._data)
         try:
             return plaintext.decode("utf-8")
@@ -63,6 +66,7 @@ class SecureClipboardItem:
             self._zero_bytes(plaintext)
 
     def preview(self) -> str:
+        """Описывает публичное действие preview."""
         value = self.reveal()
         if not value:
             return ""
@@ -72,6 +76,7 @@ class SecureClipboardItem:
         return value[:24] + ("..." if len(value) > 24 else "")
 
     def secure_wipe(self):
+        """Описывает публичное действие secure wipe."""
         self._unlock_memory()
         self._zero_bytes(self._data)
         self._zero_bytes(self._mask)
@@ -152,6 +157,7 @@ class SecureClipboardItem:
 
 class ClipboardService:
 
+    """Описывает публичный класс ClipboardService."""
     def __init__(
         self,
         platform_adapter: Optional[ClipboardAdapter] = None,
@@ -180,10 +186,12 @@ class ClipboardService:
             self._exit_handler_registered = True
 
     def add_observer(self, observer: Callable[[ClipboardStatus], None]):
+        """Добавляет observer."""
         with self._lock:
             self._observers.add(observer)
 
     def remove_observer(self, observer: Callable[[ClipboardStatus], None]):
+        """Удаляет observer."""
         with self._lock:
             self._observers.discard(observer)
 
@@ -237,21 +245,27 @@ class ClipboardService:
             return True
 
     def copy_text(self, data: str, source_entry_id: Optional[str] = None) -> bool:
+        """Копирует text."""
         return self.copy_to_clipboard(data, data_type="text", source_entry_id=source_entry_id)
 
     def copy_username(self, username: str, source_entry_id: Optional[str] = None) -> bool:
+        """Копирует username."""
         return self.copy_to_clipboard(username, data_type="username", source_entry_id=source_entry_id)
 
     def copy_password(self, password: str, source_entry_id: Optional[str] = None) -> bool:
+        """Копирует password."""
         return self.copy_to_clipboard(password, data_type="password", source_entry_id=source_entry_id)
 
     def copy_notes(self, notes: str, source_entry_id: Optional[str] = None) -> bool:
+        """Копирует notes."""
         return self.copy_to_clipboard(notes, data_type="notes", source_entry_id=source_entry_id)
 
     def copy_totp(self, code: str, source_entry_id: Optional[str] = None) -> bool:
+        """Копирует totp."""
         return self.copy_to_clipboard(code, data_type="totp", source_entry_id=source_entry_id)
 
     def copy_encrypted_blob(self, blob_text: str, source_entry_id: Optional[str] = None) -> bool:
+        """Копирует encrypted blob."""
         return self.copy_to_clipboard(blob_text, data_type="encrypted_blob", source_entry_id=source_entry_id)
 
     def copy_entry_field(self, entry_manager, entry_id: str, field_name: str) -> bool:
@@ -294,6 +308,7 @@ class ClipboardService:
         return self.copy_text(content, source_entry_id=entry_id)
 
     def clear_clipboard(self, reason: str = "manual") -> bool:
+        """Очищает clipboard."""
         with self._lock:
             return self._clear_clipboard_locked(reason, publish_event=True)
 
@@ -303,6 +318,7 @@ class ClipboardService:
         return self.clear_clipboard("close")
 
     def get_clipboard_status(self) -> ClipboardStatus:
+        """Возвращает данные для clipboard status."""
         with self._lock:
             return self._build_status_locked()
 
@@ -316,6 +332,7 @@ class ClipboardService:
             return self.current_content.reveal()
 
     def unblock_copies(self):
+        """Описывает публичное действие unblock copies."""
         with self._lock:
             self._copy_blocked = False
             self._copy_block_reason = None
@@ -323,10 +340,12 @@ class ClipboardService:
             self._notify_observers_locked()
 
     def is_copy_blocked(self) -> bool:
+        """Описывает публичное действие is copy blocked."""
         with self._lock:
             return self._copy_blocked
 
     def handle_panic_mode(self, reason: str = "panic_mode"):
+        """Описывает публичное действие handle panic mode."""
         with self._lock:
             self._copy_blocked = True
             self._copy_block_reason = reason
@@ -341,6 +360,7 @@ class ClipboardService:
             self._notify_observers_locked()
 
     def set_auto_clear_timeout(self, timeout_seconds: Optional[int]) -> Optional[int]:
+        """Сохраняет или обновляет значение auto clear timeout."""
         normalized = self._normalize_timeout(timeout_seconds)
         stored_value = NEVER_AUTO_CLEAR if normalized is None else normalized
         if hasattr(self.config, "set"):
@@ -350,6 +370,7 @@ class ClipboardService:
         return normalized
 
     def handle_external_change(self, observed_content: Optional[str]):
+        """Описывает публичное действие handle external change."""
         with self._lock:
             if not self.current_content:
                 return
@@ -361,6 +382,7 @@ class ClipboardService:
             self._clear_clipboard_locked("external_change", publish_event=True)
 
     def handle_suspicious_access(self, reason: str = "possible_clipboard_snooping"):
+        """Описывает публичное действие handle suspicious access."""
         with self._lock:
             if not self.current_content:
                 return
@@ -368,6 +390,7 @@ class ClipboardService:
             self._accelerate_clear_locked(SUSPICIOUS_CLEAR_DELAY_SECONDS, reason)
 
     def accelerate_clear(self, seconds: int = SUSPICIOUS_CLEAR_DELAY_SECONDS, reason: str = "security"):
+        """Описывает публичное действие accelerate clear."""
         with self._lock:
             self._accelerate_clear_locked(seconds, reason)
 

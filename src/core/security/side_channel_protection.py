@@ -13,6 +13,7 @@ BytesLike = Union[bytes, bytearray, memoryview]
 
 @dataclass(frozen=True)
 class SideChannelConfig:
+    """Описывает публичный класс SideChannelConfig."""
     enabled: bool = True
     cache_timing_protection: bool = True
     normalize_crypto_timing: bool = True
@@ -84,6 +85,7 @@ class SideChannelProtection:
         return bool(found)
 
     def all_tokens_contained(self, tokens: list[str], haystack: str) -> bool:
+        """Описывает публичное действие all tokens contained."""
         result = 1
         for token in tokens:
             result &= int(self.contains(token, haystack))
@@ -107,6 +109,7 @@ def constant_time_compare(
     right: Union[str, BytesLike],
     max_length: int = 4096,
 ) -> bool:
+    """Описывает публичную операцию constant time compare."""
     left_bytes = _to_bytes(left)
     right_bytes = _to_bytes(right)
     max_length = max(1, int(max_length or 4096))

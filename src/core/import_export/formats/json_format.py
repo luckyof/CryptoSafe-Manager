@@ -7,6 +7,7 @@ from .specifications import NATIVE_EXPORT_SCHEMA, NativeExportFormatSpec
 
 
 class NativeJSONFormatHandler:
+    """Описывает публичный класс NativeJSONFormatHandler."""
     format_name = "encrypted_json"
     spec = NativeExportFormatSpec()
 
@@ -16,6 +17,7 @@ class NativeJSONFormatHandler:
         integrity: Dict[str, Any],
         metadata: Dict[str, Any],
     ) -> Dict[str, Any]:
+        """Описывает публичное действие build package."""
         package = {
             "version": "1.0",
             "format_schema": NATIVE_EXPORT_SCHEMA,
@@ -33,9 +35,11 @@ class NativeJSONFormatHandler:
 
     @staticmethod
     def dumps(package: Dict[str, Any]) -> bytes:
+        """Описывает публичное действие dumps."""
         NativeJSONFormatHandler.spec.validate(package)
         return json.dumps(package, ensure_ascii=False, sort_keys=True, indent=2).encode("utf-8")
 
     @staticmethod
     def b64(value: bytes) -> str:
+        """Описывает публичное действие b64."""
         return base64.b64encode(value).decode("ascii")

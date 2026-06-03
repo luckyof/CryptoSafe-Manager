@@ -148,14 +148,17 @@ class SearchWidget(ttk.Frame):
             popup.destroy()
 
     def clear(self):
+        """Описывает публичное действие clear."""
         self.search_var.set("")
         self.clear_filters()
 
     def focus_search(self):
+        """Описывает публичное действие focus search."""
         self.search_entry.focus_set()
         self.search_entry.selection_range(0, tk.END)
 
     def clear_filters(self):
+        """Очищает filters."""
         self.category_var.set("Все")
         self.tag_var.set("")
         self.start_date_var.set("")
@@ -164,10 +167,12 @@ class SearchWidget(ttk.Frame):
         self._trigger_search()
 
     def get_query(self) -> str:
+        """Возвращает данные для query."""
         query = self.search_var.get().strip()
         return "" if query == self.PLACEHOLDER else query
 
     def get_filters(self) -> Dict[str, Any]:
+        """Возвращает данные для filters."""
         strength_map = {
             "Любая": None,
             ">= 1": 1,
@@ -186,5 +191,6 @@ class SearchWidget(ttk.Frame):
         }
 
     def set_categories(self, categories: List[str]):
+        """Сохраняет или обновляет значение categories."""
         values = ["Все"] + categories
         self.category_combo["values"] = values

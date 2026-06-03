@@ -7,6 +7,7 @@ from gui.ux import translate_error_text
 
 
 class ExportDialog(tk.Toplevel):
+    """Описывает публичный класс ExportDialog."""
     def __init__(self, parent, entry_manager, selected_entry_ids: Optional[List[str]] = None):
         super().__init__(parent)
         self.parent = parent

@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 
 class LoginDialog(tk.Toplevel):
+    """Описывает публичный класс LoginDialog."""
     def __init__(self, parent, key_manager, secure_desktop: bool = False):
         super().__init__(parent)
         self.title("Вход в хранилище")
@@ -32,6 +33,7 @@ class LoginDialog(tk.Toplevel):
             pass
 
     def create_widgets(self):
+        """Создает widgets."""
         frame = ttk.Frame(self, padding=20)
         frame.pack(fill=tk.BOTH, expand=True)
 
@@ -50,6 +52,7 @@ class LoginDialog(tk.Toplevel):
         ttk.Button(btn_frame, text="Выход", command=self.on_cancel).pack(side=tk.RIGHT)
 
     def center_window(self, parent):
+        """Описывает публичное действие center window."""
         self.update_idletasks()
         x = parent.winfo_x() + (parent.winfo_width() - self.winfo_width()) // 2
         y = parent.winfo_y() + (parent.winfo_height() - self.winfo_height()) // 2
@@ -57,6 +60,7 @@ class LoginDialog(tk.Toplevel):
 
     def on_login(self, event=None):
         # Проверка блокировки ПЕРЕД любыми действиями
+        """Описывает публичное действие on login."""
         if self.key_manager.auth.is_locked_out():
             remaining = self.key_manager.auth.get_remaining_lockout_time()
             messagebox.showwarning("Блокировка", 
@@ -87,5 +91,6 @@ class LoginDialog(tk.Toplevel):
                 self.login_btn.config(state=tk.NORMAL)
 
     def on_cancel(self):
+        """Описывает публичное действие on cancel."""
         self.success = False
         self.destroy()

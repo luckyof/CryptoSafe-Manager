@@ -42,11 +42,13 @@ CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 
 class ImportValidationError(ValueError):
+    """Описывает публичный класс ImportValidationError."""
     pass
 
 
 @dataclass
 class ImportOptions:
+    """Описывает публичный класс ImportOptions."""
     format: Optional[str] = None
     mode: str = "dry-run"
     duplicate_policy: str = "skip"
@@ -60,6 +62,7 @@ class ImportOptions:
 
 @dataclass
 class ImportPreview:
+    """Описывает публичный класс ImportPreview."""
     format: str
     entries: List[Dict[str, Any]]
     warnings: List[str] = field(default_factory=list)
@@ -69,6 +72,7 @@ class ImportPreview:
 
 @dataclass
 class ImportResult:
+    """Описывает публичный класс ImportResult."""
     format: str
     mode: str
     imported_count: int
@@ -86,6 +90,7 @@ class ImportResult:
 
 @dataclass
 class ImportErrorReport:
+    """Описывает публичный класс ImportErrorReport."""
     error_type: str
     message: str
     detected_format: str
@@ -96,6 +101,7 @@ class ImportErrorReport:
 
 
 class VaultImporter:
+    """Описывает публичный класс VaultImporter."""
     def __init__(self, entry_manager=None, db_connection=None, bus=event_bus):
         self.entry_manager = entry_manager
         self.db = db_connection or getattr(entry_manager, "db", None)
@@ -108,6 +114,7 @@ class VaultImporter:
             self.bus.subscribe("PanicModeActivated", self._handle_panic_interrupt)
 
     def import_from_file(self, path: str, options: Optional[ImportOptions] = None) -> ImportResult:
+        """Описывает публичное действие import from file."""
         file_path = Path(path)
         content = file_path.read_bytes()
         return self.import_from_bytes(content, options=options, filename=file_path.name)
@@ -118,6 +125,7 @@ class VaultImporter:
         options: Optional[ImportOptions] = None,
         filename: Optional[str] = None,
     ) -> ImportResult:
+        """Описывает публичное действие import from bytes."""
         options = options or ImportOptions()
         self._panic_interrupted = False
         self._validate_options(options, content)
@@ -196,6 +204,7 @@ class VaultImporter:
         checksum: str,
         options: Optional[ImportOptions] = None,
     ) -> ImportErrorReport:
+        """Описывает публичное действие build error report."""
         options = options or ImportOptions()
         recovery_options = []
         message = str(exc) or type(exc).__name__
@@ -222,6 +231,7 @@ class VaultImporter:
         )
 
     def detect_format(self, content: bytes, filename: Optional[str] = None) -> str:
+        """Описывает публичное действие detect format."""
         sample = (content or b"")[:4096].lstrip()
         lower_name = (filename or "").lower()
         if sample.startswith(b"{") and b"cryptosafe_export" in sample:

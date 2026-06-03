@@ -9,6 +9,7 @@ from ..ux import translate_error_text
 logger = logging.getLogger("ChangePasswordDialog")
 
 class ChangePasswordDialog(tk.Toplevel):
+    """Описывает публичный класс ChangePasswordDialog."""
     def __init__(self, parent, key_manager, entry_manager, crypto_service):
         super().__init__(parent)
         self.title("Смена мастер-пароля")
@@ -26,6 +27,7 @@ class ChangePasswordDialog(tk.Toplevel):
         self.protocol("WM_DELETE_WINDOW", self.destroy)
 
     def create_widgets(self):
+        """Создает widgets."""
         frame = ttk.Frame(self, padding=20)
         frame.pack(fill=tk.BOTH, expand=True)
 
@@ -55,6 +57,7 @@ class ChangePasswordDialog(tk.Toplevel):
         ttk.Button(btn_frame, text="Сменить пароль", command=self.on_change).pack(side=tk.RIGHT)
 
     def on_change(self):
+        """Описывает публичное действие on change."""
         old_p = self.old_pass.get()
         new_p = self.new_pass.get()
         conf_p = self.confirm_pass.get()
