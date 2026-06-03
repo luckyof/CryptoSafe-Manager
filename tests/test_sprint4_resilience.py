@@ -104,7 +104,7 @@ def test_err_2_clear_failure_warns_user_to_clear_manually():
     assert adapter.get_clipboard_content() == "manual-clear-secret"
     assert errors[-1]["reason"] == "clear_failed"
     assert errors[-1]["manual_clear_required"] is True
-    assert "manually" in errors[-1]["message"].lower()
+    assert "вручную" in errors[-1]["message"].lower()
     assert errors[-1]["backend_name"] == "failing-clear"
 
 
@@ -134,7 +134,7 @@ def test_err_3_monitoring_failure_degrades_with_warning_event():
     monitor.stop()
 
     assert errors[-1]["reason"] == "poll_failed"
-    assert "degraded" in errors[-1]["message"]
+    assert "ограничен" in errors[-1]["message"]
 
 
 def test_err_4_validation_errors_are_audited_without_exposing_secret():

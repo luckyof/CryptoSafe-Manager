@@ -244,29 +244,130 @@ def batched(items: Sequence[T], batch_size: int) -> Iterator[Sequence[T]]:
         yield items[index : index + size]
 
 
+ERROR_TRANSLATIONS = {
+    "Clipboard could not be cleared automatically. Clear it manually.": "Не удалось автоматически очистить буфер обмена. Очистите его вручную.",
+    "Clipboard copy failed; platform backend did not accept the data.": "Не удалось скопировать данные: системный буфер обмена не принял данные.",
+    "Vault must be unlocked before clipboard operations.": "Перед операциями с буфером обмена нужно разблокировать хранилище.",
+    "Clipboard data must be text.": "Данные буфера обмена должны быть текстом.",
+    "Clipboard data must not be empty.": "Данные буфера обмена не должны быть пустыми.",
+    "Operation interrupted by panic mode.": "Операция прервана режимом паники.",
+    "Plaintext export requires allow_plaintext=True.": "Экспорт в открытом виде требует явного подтверждения.",
+    "Encrypted export requires encryption_password or recipient_public_key.": "Для зашифрованного экспорта нужен пароль экспорта или публичный ключ получателя.",
+    "encryption_strength must be 128 or 256": "Стойкость шифрования должна быть 128 или 256 бит.",
+    "ECC public-key export requires AES-256-GCM.": "Экспорт по ECC-ключу требует AES-256-GCM.",
+    "ECC public-key export requires a P-256 recipient key.": "Для ECC-экспорта нужен ключ получателя P-256.",
+    "Unsupported or unknown import format.": "Неподдерживаемый или неизвестный формат импорта.",
+    "Encrypted JSON import requires encryption_password.": "Для импорта зашифрованного JSON нужен пароль.",
+    "Payload integrity hash mismatch.": "Контрольная сумма данных не совпадает.",
+    "Native export payload does not contain entries.": "Файл экспорта не содержит записей.",
+    "Unsupported key derivation.": "Неподдерживаемый способ получения ключа.",
+    "Invalid PBKDF2 iteration count.": "Некорректное количество итераций PBKDF2.",
+    "PBKDF2 iteration count is below policy.": "Количество итераций PBKDF2 ниже политики безопасности.",
+    "Public-key encrypted import requires private_key_pem.": "Для импорта, зашифрованного публичным ключом, нужен приватный ключ.",
+    "ECC export requires an elliptic curve private key.": "Для ECC-экспорта нужен приватный ключ эллиптической кривой.",
+    "RSA export requires an RSA private key.": "Для RSA-экспорта нужен RSA-приватный ключ.",
+    "Export package signature verification failed.": "Не удалось проверить подпись пакета экспорта.",
+    "JSON import must contain an entries/items list.": "JSON для импорта должен содержать список entries или items.",
+    "Bitwarden JSON must contain items.": "JSON Bitwarden должен содержать список items.",
+    "Bitwarden encrypted JSON import requires encryption_password.": "Для импорта зашифрованного JSON Bitwarden нужен пароль.",
+    "Bitwarden encrypted JSON must be an object.": "Зашифрованный JSON Bitwarden должен быть объектом.",
+    "Bitwarden encrypted JSON must be password-protected.": "Зашифрованный JSON Bitwarden должен быть защищен паролем.",
+    "Bitwarden encrypted JSON password or integrity check failed.": "Пароль Bitwarden неверный или проверка целостности не пройдена.",
+    "Bitwarden encrypted JSON padding validation failed.": "Проверка padding в зашифрованном JSON Bitwarden не пройдена.",
+    "CSV import requires a header row.": "CSV-файл должен содержать строку заголовков.",
+    "entry must be an object": "Запись должна быть объектом.",
+    "title is required": "Название обязательно.",
+    "password is required": "Пароль обязателен.",
+    "Duplicate entries detected.": "Обнаружены дубликаты записей.",
+    "Import checkpoint is corrupted.": "Контрольная точка импорта повреждена.",
+    "Import checkpoint belongs to a different source file.": "Контрольная точка импорта относится к другому файлу.",
+    "Database connection is required for replace import.": "Для импорта с заменой требуется подключение к базе данных.",
+    "Import processing timed out.": "Время обработки импорта истекло.",
+    "JSON root must be an object or list.": "Корень JSON должен быть объектом или списком.",
+    "mode must be one of: dry-run, merge, replace": "Режим должен быть одним из: dry-run, merge, replace.",
+    "duplicate_policy must be one of: skip, update, rename, error": "Политика дубликатов должна быть одной из: skip, update, rename, error.",
+    "timeout_seconds must be positive": "Таймаут должен быть положительным.",
+    "QR payload decompression failed.": "Не удалось распаковать QR-данные.",
+    "QR payload checksum mismatch.": "Контрольная сумма QR-данных не совпадает.",
+    "QR payload JSON is invalid.": "QR-данные содержат некорректный JSON.",
+    "QR payload must be an object.": "QR-данные должны быть объектом.",
+    "Unsupported QR payload version.": "Неподдерживаемая версия QR-данных.",
+    "Unsupported QR payload type.": "Неподдерживаемый тип QR-данных.",
+    "QR payload has expired.": "Срок действия QR-данных истек.",
+    "QR payload replay detected.": "Обнаружена повторная отправка QR-данных.",
+    "QR image scanning requires Pillow and pyzbar.": "Для сканирования QR-изображений нужны Pillow и pyzbar.",
+    "Camera scanning requires OpenCV and an available camera.": "Для сканирования камерой нужен OpenCV и доступная камера.",
+    "Unsupported share encryption method.": "Неподдерживаемый метод шифрования обмена.",
+    "Share method must be 'password' or 'public_key'.": "Метод обмена должен быть password или public_key.",
+    "Share expiration must be between 1 and 30 days.": "Срок действия обмена должен быть от 1 до 30 дней.",
+    "Password-based sharing requires password.": "Для обмена по паролю нужен пароль.",
+    "Public-key sharing requires recipient_public_key.": "Для обмена по публичному ключу нужен ключ получателя.",
+    "ECIES sharing requires an ECC P-256 recipient key.": "Для ECIES-обмена нужен ECC P-256 ключ получателя.",
+    "ECC share requires an elliptic curve private key.": "Для ECC-обмена нужен приватный ключ эллиптической кривой.",
+    "RSA share requires an RSA private key.": "Для RSA-обмена нужен RSA-приватный ключ.",
+    "Shared package signature verification failed.": "Не удалось проверить подпись пакета обмена.",
+    "QR payload TTL must be positive.": "Срок действия QR-данных должен быть положительным.",
+    "Secure allocation size must be non-negative": "Размер защищенного выделения памяти не может быть отрицательным.",
+    "Key must be bytes-like.": "Ключ должен быть байтовым значением.",
+    "RSA key_size must be at least 2048 bits": "Размер RSA-ключа должен быть не менее 2048 бит.",
+    "Export requires master password confirmation.": "Экспорт требует подтверждения мастер-пароля.",
+    "Decryption failed: authentication tag invalid. Data may be tampered.": "Не удалось расшифровать данные: проверка подлинности не пройдена. Возможно, данные были изменены.",
+}
+
+
+def translate_error_text(error) -> str:
+    text = str(error).strip()
+    if not text:
+        return "Неизвестная ошибка."
+    if text in ERROR_TRANSLATIONS:
+        return ERROR_TRANSLATIONS[text]
+
+    translated = text
+    replacements = {
+        "Clipboard error": "Ошибка буфера обмена",
+        "unknown": "неизвестно",
+        "Unsupported clipboard data type": "Неподдерживаемый тип данных буфера обмена",
+        "Unsupported export format": "Неподдерживаемый формат экспорта",
+        "Unsupported export frequency": "Неподдерживаемая периодичность экспорта",
+        "Invalid JSON": "Некорректный JSON",
+        "must be base64 text": "должно быть текстом base64",
+        "is not valid base64": "не является корректным base64",
+        "is malformed": "имеет некорректный формат",
+        "is too long": "слишком длинное",
+        "must be a scalar text field": "должно быть простым текстовым полем",
+        "requires": "требует",
+        "required": "обязательно",
+        "failed": "не выполнено",
+        "invalid": "некорректно",
+    }
+    for source, target in replacements.items():
+        translated = translated.replace(source, target)
+    return translated
+
+
 def friendly_error_message(error: Exception, context: str = "operation") -> UserMessage:
     text = str(error).strip()
     lowered = text.lower()
     if "database" in lowered or "sqlite" in lowered or "locked" in lowered:
         return UserMessage(
-            "Vault data is temporarily unavailable",
-            f"CryptoSafe could not complete this {context} because the vault data is busy or unavailable.",
-            "Close other CryptoSafe windows and try again. If this keeps happening, restart the app.",
+            "Данные хранилища временно недоступны",
+            f"CryptoSafe не смог выполнить операцию: база занята или недоступна.",
+            "Закройте другие окна CryptoSafe и попробуйте снова. Если ошибка повторяется, перезапустите приложение.",
         )
     if "permission" in lowered or "access" in lowered or "denied" in lowered:
         return UserMessage(
-            "Permission needed",
-            f"CryptoSafe does not have permission to complete this {context}.",
-            "Choose a folder you can write to, or run the app with the required account permissions.",
+            "Недостаточно прав",
+            "CryptoSafe не хватает прав для выполнения операции.",
+            "Выберите папку с правами на запись или запустите приложение от учетной записи с нужными правами.",
         )
     if "password" in lowered or "authentication" in lowered or "decrypt" in lowered:
         return UserMessage(
-            "Authentication required",
-            f"CryptoSafe could not verify access for this {context}.",
-            "Check the master password and try again.",
+            "Требуется подтверждение доступа",
+            "CryptoSafe не смог проверить доступ к защищенным данным.",
+            "Проверьте мастер-пароль и попробуйте снова.",
         )
     return UserMessage(
-        "Action could not be completed",
-        f"CryptoSafe could not complete this {context}.",
-        "Try again. Technical details were written to the application log.",
+        "Действие не выполнено",
+        translate_error_text(error),
+        "Попробуйте снова. Технические подробности записаны в журнал приложения.",
     )

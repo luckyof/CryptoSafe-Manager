@@ -219,7 +219,7 @@ class ClipboardService:
                     "copy_failed",
                     data_type=data_type,
                     source_entry_id=source_entry_id,
-                    message="Clipboard copy failed; platform backend did not accept the data.",
+                    message="Не удалось скопировать данные: системный буфер обмена не принял данные.",
                 )
                 return False
 
@@ -312,7 +312,7 @@ class ClipboardService:
             if not self.current_content:
                 return None
             if not authenticator():
-                raise PermissionError("Authentication required to reveal clipboard content.")
+                raise PermissionError("Для просмотра содержимого буфера обмена требуется подтверждение доступа.")
             return self.current_content.reveal()
 
     def unblock_copies(self):
@@ -373,26 +373,26 @@ class ClipboardService:
 
     def _validate_copy_request(self, data: str, data_type: str):
         if getattr(self.state, "is_locked", False):
-            raise PermissionError("Vault must be unlocked before clipboard operations.")
+            raise PermissionError("Перед операциями с буфером обмена нужно разблокировать хранилище.")
         if self._copy_blocked:
             reason = self._copy_block_reason or "security policy"
-            raise PermissionError(f"Clipboard copies are blocked: {reason}.")
+            raise PermissionError(f"Копирование в буфер обмена заблокировано: {reason}.")
         if not isinstance(data, str):
-            raise TypeError("Clipboard data must be text.")
+            raise TypeError("Данные буфера обмена должны быть текстом.")
         if not data:
-            raise ValueError("Clipboard data must not be empty.")
+            raise ValueError("Данные буфера обмена не должны быть пустыми.")
         if len(data) > MAX_CLIPBOARD_CHARS:
-            raise ValueError("Clipboard data exceeds maximum allowed size.")
+            raise ValueError("Данные буфера обмена превышают допустимый размер.")
         if "\x00" in data:
-            raise ValueError("Clipboard data contains invalid NUL byte.")
+            raise ValueError("Данные буфера обмена содержат недопустимый NUL-байт.")
         if data_type not in SUPPORTED_DATA_TYPES:
-            raise ValueError(f"Unsupported clipboard data type: {data_type}")
+            raise ValueError(f"Неподдерживаемый тип данных буфера обмена: {data_type}")
 
     def _get_entry_for_clipboard(self, entry_manager, entry_id: str, field_name: str) -> dict:
         if not entry_manager or not hasattr(entry_manager, "get_entry"):
-            raise ValueError("EntryManager integration is required for vault clipboard operations.")
+            raise ValueError("Для операций буфера обмена с хранилищем требуется EntryManager.")
         if not entry_id:
-            raise ValueError("Entry ID is required for vault clipboard operations.")
+            raise ValueError("Для операций буфера обмена с хранилищем требуется ID записи.")
 
         entry = entry_manager.get_entry(entry_id)
         self._validate_entry_clipboard_policy(entry, field_name)
@@ -400,15 +400,15 @@ class ClipboardService:
 
     def _validate_entry_clipboard_policy(self, entry: dict, field_name: str):
         if entry.get("never_copy_to_clipboard") in (True, "true", "True", "1", 1):
-            raise PermissionError("This entry is configured to never copy data to clipboard.")
+            raise PermissionError("Для этой записи запрещено копирование данных в буфер обмена.")
 
         policy = entry.get("clipboard_policy") or {}
         if policy.get("never_copy") in (True, "true", "True", "1", 1):
-            raise PermissionError("This entry is configured to never copy data to clipboard.")
+            raise PermissionError("Для этой записи запрещено копирование данных в буфер обмена.")
 
         blocked_fields = set(policy.get("blocked_fields") or policy.get("never_copy_fields") or [])
         if field_name in blocked_fields or (field_name == "summary" and blocked_fields):
-            raise PermissionError(f"Clipboard copy is disabled for entry field: {field_name}.")
+            raise PermissionError(f"Копирование поля записи отключено: {field_name}.")
 
     def _get_timeout_seconds(self) -> Optional[int]:
         if self._config_get("clipboard_auto_clear", True) in (False, "false", "False", "0", 0):
@@ -462,7 +462,7 @@ class ClipboardService:
             "ClipboardWarning",
             {
                 "reason": reason,
-                "message": "Clipboard will be cleared soon due to suspicious activity.",
+                "message": "Буфер обмена скоро будет очищен из-за подозрительной активности.",
                 "remaining_seconds": delay,
             },
         )
@@ -519,7 +519,7 @@ class ClipboardService:
                 "clear_failed",
                 data_type=data_type,
                 source_entry_id=source_entry_id,
-                message="Clipboard could not be cleared automatically. Clear it manually.",
+                message="Не удалось автоматически очистить буфер обмена. Очистите его вручную.",
                 manual_clear_required=True,
             )
         return cleared

@@ -97,7 +97,7 @@ class PanicMode:
         y = int(y)
         if self._window_positions:
             _, last_x, last_y = self._window_positions[-1]
-            if abs(x - last_x) < 4 and abs(y - last_y) < 4:
+            if abs(x - last_x) < 8 and abs(y - last_y) < 8:
                 return False
         self._window_positions.append((now, x, y))
         if self._detect_shake():
@@ -160,36 +160,35 @@ class PanicMode:
         }
 
     def _detect_shake(self) -> bool:
-        if len(self._window_positions) < 6:
+        if len(self._window_positions) < 7:
             return False
         positions = list(self._window_positions)
-        if positions[-1][0] - positions[0][0] > 2.2:
+        if positions[-1][0] - positions[0][0] > 1.6:
+            return False
+
+        if self._axis_shake_detected(positions, axis=1):
+            return True
+
+        return self._axis_shake_detected(positions, axis=2)
+
+    def _axis_shake_detected(self, positions: list[tuple[float, int, int]], axis: int) -> bool:
+        values = [position[axis] for position in positions]
+        if max(values) - min(values) < 70:
             return False
 
         changes = 0
+        strong_steps = 0
         previous_direction = 0
-        for (_, prev_x, _), (_, cur_x, _) in zip(positions, positions[1:]):
-            delta = cur_x - prev_x
-            if abs(delta) < 10:
+        for previous, current in zip(values, values[1:]):
+            delta = current - previous
+            if abs(delta) < 22:
                 continue
+            strong_steps += 1
             direction = 1 if delta > 0 else -1
             if previous_direction and direction != previous_direction:
                 changes += 1
             previous_direction = direction
-        if changes >= 2:
-            return True
-
-        changes = 0
-        previous_direction = 0
-        for (_, _, prev_y), (_, _, cur_y) in zip(positions, positions[1:]):
-            delta = cur_y - prev_y
-            if abs(delta) < 10:
-                continue
-            direction = 1 if delta > 0 else -1
-            if previous_direction and direction != previous_direction:
-                changes += 1
-            previous_direction = direction
-        return changes >= 2
+        return strong_steps >= 5 and changes >= 3
 
     def _detect_pointer_shake(self, x: int, now: float) -> bool:
         if self._gesture_started_at is None or self._gesture_last_x is None:

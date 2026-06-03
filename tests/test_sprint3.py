@@ -107,7 +107,7 @@ class TestAES256GCMEncryption:
         tampered = bytearray(encrypted)
         tampered[15] ^= 0xFF  # Изменяем байт в ciphertext/tag
 
-        with pytest.raises(ValueError, match="authentication tag invalid"):
+        with pytest.raises(ValueError, match="проверка подлинности не пройдена"):
             encryption_service.decrypt(bytes(tampered))
 
     def test_encrypt_decrypt_dict(self, key_manager):

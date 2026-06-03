@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 
 from core.config import CLIPBOARD_PRESETS, SECURITY_PROFILES
+from gui.ux import translate_error_text
 
 CLIPBOARD_PROFILE_LABELS = {
     "Standard": "Стандартный",
@@ -198,7 +199,7 @@ class SettingsDialog(tk.Toplevel):
         ttk.Checkbutton(panic_box, text="Включить жест встряхивания окна", variable=self.panic_mouse_gesture_var).pack(anchor=tk.W)
         ttk.Checkbutton(panic_box, text="Закрывать приложение после паники", variable=self.panic_close_app_var).pack(anchor=tk.W)
         ttk.Checkbutton(panic_box, text="Включить скрытные действия", variable=self.panic_stealth_var).pack(anchor=tk.W)
-        ttk.Checkbutton(panic_box, text="Показывать ложную ошибку в скрытном режиме", variable=self.panic_fake_error_var).pack(anchor=tk.W)
+        ttk.Checkbutton(panic_box, text="Показывать окно ложной ошибки", variable=self.panic_fake_error_var).pack(anchor=tk.W)
 
     def _apply_profile_to_form(self):
         preset = CLIPBOARD_PRESETS.get(self._value(CLIPBOARD_PROFILE_LABELS, self.profile_var.get()))
@@ -266,7 +267,7 @@ class SettingsDialog(tk.Toplevel):
         except Exception as exc:
             messagebox.showerror(
                 "Проверка настроек",
-                f"Настройки не сохранены.\n\n{exc}\n\nИсправьте параметры и попробуйте снова.",
+                f"Настройки не сохранены.\n\n{translate_error_text(exc)}\n\nИсправьте параметры и попробуйте снова.",
                 parent=self,
             )
             return

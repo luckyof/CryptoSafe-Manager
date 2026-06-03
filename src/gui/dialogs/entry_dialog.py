@@ -12,6 +12,7 @@ from typing import Optional, Dict, Any, Callable
 import re
 
 from core.vault.password_generator import PasswordGenerator, PasswordStrength
+from gui.ux import translate_error_text
 
 
 class PasswordGeneratorPopup(tk.Toplevel):
@@ -20,7 +21,7 @@ class PasswordGeneratorPopup(tk.Toplevel):
     def __init__(self, parent, callback: Callable):
         super().__init__(parent)
         self.title("Генератор паролей")
-        self.geometry("350x400")
+        self.geometry("380x400")
         self.resizable(False, False)
         self.transient(parent)
         self.grab_set()
@@ -101,7 +102,7 @@ class PasswordGeneratorPopup(tk.Toplevel):
             self.strength_label.config(text=f"Сложность: {label} ({score}/4)")
 
         except ValueError as e:
-            messagebox.showerror("Ошибка", str(e), parent=self)
+            messagebox.showerror("Ошибка", translate_error_text(e), parent=self)
 
     def _on_copy(self):
         password = self.password_preview.get()

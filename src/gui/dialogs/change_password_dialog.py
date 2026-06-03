@@ -3,6 +3,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import logging
 from ..widgets.password_entry import PasswordEntry
+from ..ux import translate_error_text
 
 # ИНИЦИАЛИЗАЦИЯ ЛОГГЕРА
 logger = logging.getLogger("ChangePasswordDialog")
@@ -91,10 +92,10 @@ class ChangePasswordDialog(tk.Toplevel):
             self.destroy()
 
         except ValueError as e:
-            messagebox.showerror("Ошибка", str(e), parent=self)
+            messagebox.showerror("Ошибка", translate_error_text(e), parent=self)
         except Exception as e:
             logger.error(f"Change password error: {e}")
-            messagebox.showerror("Критическая ошибка", f"Не удалось сменить пароль:\n{e}", parent=self)
+            messagebox.showerror("Критическая ошибка", f"Не удалось сменить пароль:\n{translate_error_text(e)}", parent=self)
         finally:
             try:
                 self.config(cursor="")

@@ -180,11 +180,16 @@ class SecurityValidationSuite:
             if idle_callback:
                 idle_callback()
             time.sleep(0.005)
-        cpu_fraction = (time.process_time() - started_cpu) / max(time.perf_counter() - started_wall, 1e-9)
+        raw_cpu_fraction = (time.process_time() - started_cpu) / max(time.perf_counter() - started_wall, 1e-9)
+        cpu_fraction = max(0.0, min(raw_cpu_fraction, 1.0))
         result = SecurityValidationResult(
             "idle_cpu_overhead",
             cpu_fraction <= max_cpu_fraction,
-            {"cpu_fraction": cpu_fraction, "max_cpu_fraction": max_cpu_fraction},
+            {
+                "cpu_fraction": cpu_fraction,
+                "raw_cpu_fraction": raw_cpu_fraction,
+                "max_cpu_fraction": max_cpu_fraction,
+            },
         )
         self.bus.publish("SecurityValidationCompleted", result.__dict__)
         return result

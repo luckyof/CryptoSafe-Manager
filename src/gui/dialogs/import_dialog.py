@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 
 from core.import_export import ImportOptions, SharingService, VaultImporter
+from gui.ux import translate_error_text
 
 
 class ImportDialog(tk.Toplevel):
@@ -29,8 +30,9 @@ class ImportDialog(tk.Toplevel):
         self.private_key_path_var = tk.StringVar()
 
     def _create_widgets(self):
-        root = ttk.Frame(self, padding=10)
-        root.pack(fill=tk.BOTH, expand=True)
+        shell = ttk.Frame(self)
+        shell.pack(fill=tk.BOTH, expand=True)
+        root = self._create_scrollable_content(shell)
 
         file_frame = ttk.LabelFrame(root, text="Файл", padding=8)
         file_frame.pack(fill=tk.X)
@@ -81,11 +83,39 @@ class ImportDialog(tk.Toplevel):
         self.preview_tree.heading("url", text="URL")
         self.preview_tree.pack(fill=tk.BOTH, expand=True, pady=(6, 0))
 
-        footer = ttk.Frame(root)
+        footer = ttk.Frame(shell, padding=10)
         footer.pack(fill=tk.X)
         ttk.Button(footer, text="Предпросмотр", command=self._preview).pack(side=tk.LEFT)
         ttk.Button(footer, text="Импорт", command=self._import).pack(side=tk.RIGHT, padx=(6, 0))
         ttk.Button(footer, text="Закрыть", command=self.destroy).pack(side=tk.RIGHT)
+
+    def _create_scrollable_content(self, parent):
+        container = ttk.Frame(parent)
+        container.pack(fill=tk.BOTH, expand=True)
+        canvas = tk.Canvas(container, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(container, orient=tk.VERTICAL, command=canvas.yview)
+        content = ttk.Frame(canvas, padding=10)
+        window_id = canvas.create_window((0, 0), window=content, anchor=tk.NW)
+
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        def update_scroll_region(_event=None):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        def update_content_width(event):
+            canvas.itemconfigure(window_id, width=event.width)
+
+        def on_mousewheel(event):
+            delta = -1 if event.delta > 0 else 1
+            canvas.yview_scroll(delta * 3, "units")
+
+        content.bind("<Configure>", update_scroll_region)
+        canvas.bind("<Configure>", update_content_width)
+        canvas.bind("<Enter>", lambda _event: canvas.bind_all("<MouseWheel>", on_mousewheel))
+        canvas.bind("<Leave>", lambda _event: canvas.unbind_all("<MouseWheel>"))
+        return content
 
     def _choose_file(self):
         path = filedialog.askopenfilename(parent=self)
@@ -151,7 +181,7 @@ class ImportDialog(tk.Toplevel):
             result = VaultImporter(self.entry_manager).import_from_bytes(self.file_content, self._build_import_options(mode="dry-run"), self.path_var.get())
             self._show_result(result)
         except Exception as exc:
-            messagebox.showerror("Импорт", f"Не удалось построить предпросмотр:\n{exc}", parent=self)
+            messagebox.showerror("Импорт", f"Не удалось построить предпросмотр:\n{translate_error_text(exc)}", parent=self)
 
     def _import(self):
         if not self._require_content():
@@ -167,7 +197,7 @@ class ImportDialog(tk.Toplevel):
                 self._show_shared_result(result, saved=True)
                 if self.on_import_complete:
                     self.on_import_complete()
-                messagebox.showinfo("РРјРїРѕСЂС‚", f"Shared entry saved: {result.saved_entry_id}", parent=self)
+                messagebox.showinfo("Импорт", f"Общая запись сохранена: {result.saved_entry_id}", parent=self)
                 return
             result = VaultImporter(self.entry_manager).import_from_bytes(self.file_content, self._build_import_options(), self.path_var.get())
             self._show_result(result)
@@ -175,7 +205,7 @@ class ImportDialog(tk.Toplevel):
                 self.on_import_complete()
             messagebox.showinfo("Импорт", f"Добавлено: {result.imported_count}\nОбновлено: {result.updated_count}\nПропущено: {result.skipped_count}", parent=self)
         except Exception as exc:
-            messagebox.showerror("Импорт", f"Не удалось выполнить импорт:\n{exc}", parent=self)
+            messagebox.showerror("Импорт", f"Не удалось выполнить импорт:\n{translate_error_text(exc)}", parent=self)
 
     def _show_result(self, result):
         self.preview_tree.delete(*self.preview_tree.get_children())

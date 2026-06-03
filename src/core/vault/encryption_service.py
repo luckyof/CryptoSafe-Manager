@@ -126,7 +126,7 @@ class AES256GCMService:
             return plaintext
         except InvalidTag:
             logger.error("Authentication tag validation failed — possible tampering!")
-            raise ValueError("Decryption failed: authentication tag invalid. Data may be tampered.")
+            raise ValueError("Не удалось расшифровать данные: проверка подлинности не пройдена. Возможно, данные были изменены.")
 
     @staticmethod
     def encrypt_dict(data: Dict[str, Any], key_manager=None, associated_data: Optional[bytes] = None) -> bytes:

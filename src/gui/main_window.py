@@ -21,7 +21,7 @@ from .dialogs.export_dialog import ExportDialog
 from .dialogs.import_dialog import ImportDialog
 from .dialogs.sharing_dialog import SharingDialog
 from .tray_manager import TrayManager
-from .ux import COMMON_SHORTCUTS, ToolTip, apply_theme, friendly_error_message, security_state_color
+from .ux import COMMON_SHORTCUTS, ToolTip, apply_theme, friendly_error_message, security_state_color, translate_error_text
 
 from core.config import ConfigManager
 from core.state_manager import state_manager
@@ -42,7 +42,7 @@ class MainWindow(tk.Tk):
     def __init__(self, config: ConfigManager, defer_startup: bool = False):
         super().__init__()
         self.title("CryptoSafe Manager - Sprint 8")
-        self.geometry("1120x650")
+        self.geometry("1200x650")
 
         self.app_config = config
         self.db = None
@@ -83,6 +83,8 @@ class MainWindow(tk.Tk):
         self._window_shake_thread = None
         self._last_window_position = None
         self._panic_hotkey_bindings = []
+        self._closing = False
+        self._pending_after_ids = set()
         apply_theme(self, self.app_config.get("theme", "light"))
 
         self.create_toolbar()
@@ -251,7 +253,11 @@ class MainWindow(tk.Tk):
         self.exit_application()
 
     def exit_application(self):
+        if self._closing:
+            return
+        self._closing = True
         logger.info("Closing application...")
+        self._prepare_input_state_for_exit()
         self.stop_activity_monitor()
         if self.tray_manager:
             self.tray_manager.stop()
@@ -264,6 +270,61 @@ class MainWindow(tk.Tk):
         if self.key_manager:
             self.key_manager.lock()
         self.destroy()
+
+    def _prepare_input_state_for_exit(self):
+        for after_id in list(getattr(self, "_pending_after_ids", set())):
+            try:
+                self.after_cancel(after_id)
+            except Exception:
+                pass
+        self._pending_after_ids.clear()
+        for sequence in getattr(self, "_panic_hotkey_bindings", []):
+            try:
+                self.unbind_all(sequence)
+            except Exception:
+                pass
+        try:
+            self.unbind_all("<MouseWheel>")
+        except Exception:
+            pass
+        try:
+            grabbed = self.grab_current()
+            if grabbed is not None:
+                grabbed.grab_release()
+        except Exception:
+            pass
+        self._release_windows_modifier_keys()
+
+    def _safe_after(self, delay_ms: int, callback, *args):
+        if self._closing:
+            return None
+
+        after_id = None
+
+        def guarded_callback():
+            self._pending_after_ids.discard(after_id)
+            if self._closing or not self.winfo_exists():
+                return
+            callback(*args)
+
+        try:
+            after_id = self.after(delay_ms, guarded_callback)
+            self._pending_after_ids.add(after_id)
+            return after_id
+        except tk.TclError:
+            return None
+
+    def _release_windows_modifier_keys(self):
+        if sys.platform != "win32":
+            return
+        try:
+            import ctypes
+
+            keyeventf_keyup = 0x0002
+            for virtual_key in (0x10, 0xA0, 0xA1, 0x11, 0xA2, 0xA3, 0x12, 0xA4, 0xA5):
+                ctypes.windll.user32.keybd_event(virtual_key, 0, keyeventf_keyup, 0)
+        except Exception:
+            pass
 
     def create_toolbar(self):
         toolbar = ttk.Frame(self)
@@ -356,13 +417,13 @@ class MainWindow(tk.Tk):
             self.search_widget.focus_search()
 
     def setup_clipboard_ui(self):
-        self.clipboard_service.add_observer(lambda status: self.after(0, self._on_clipboard_status, status))
-        event_bus.subscribe("ClipboardCopied", lambda event: self.after(0, self._on_clipboard_copied, event.data))
-        event_bus.subscribe("ClipboardCleared", lambda event: self.after(0, self._on_clipboard_cleared, event.data))
-        event_bus.subscribe("ClipboardWarning", lambda event: self.after(0, self._on_clipboard_warning, event.data))
-        event_bus.subscribe("ClipboardCopyBlockChanged", lambda event: self.after(0, self._on_clipboard_block_changed, event.data))
-        event_bus.subscribe("ClipboardError", lambda event: self.after(0, self._on_clipboard_error, event.data))
-        self.after(1000, self.refresh_clipboard_status)
+        self.clipboard_service.add_observer(lambda status: self._safe_after(0, self._on_clipboard_status, status))
+        event_bus.subscribe("ClipboardCopied", lambda event: self._safe_after(0, self._on_clipboard_copied, event.data))
+        event_bus.subscribe("ClipboardCleared", lambda event: self._safe_after(0, self._on_clipboard_cleared, event.data))
+        event_bus.subscribe("ClipboardWarning", lambda event: self._safe_after(0, self._on_clipboard_warning, event.data))
+        event_bus.subscribe("ClipboardCopyBlockChanged", lambda event: self._safe_after(0, self._on_clipboard_block_changed, event.data))
+        event_bus.subscribe("ClipboardError", lambda event: self._safe_after(0, self._on_clipboard_error, event.data))
+        self._safe_after(1000, self.refresh_clipboard_status)
 
     def setup_tray(self):
         if not self.app_config.get_bool("tray_enabled", True):
@@ -390,10 +451,13 @@ class MainWindow(tk.Tk):
     def _bind_panic_hotkey(self):
         for sequence in self._panic_hotkey_bindings:
             self.unbind_all(sequence)
-        primary = self.panic_mode.hotkey_sequence()
-        self._panic_hotkey_bindings = [primary, "<Control-Alt-P>"]
-        for sequence in dict.fromkeys(self._panic_hotkey_bindings):
-            self.bind_all(sequence, lambda e: self.activate_panic_mode("hotkey"))
+        self._panic_hotkey_bindings = [self.panic_mode.hotkey_sequence()]
+        for sequence in self._panic_hotkey_bindings:
+            self.bind_all(sequence, self._on_panic_hotkey)
+
+    def _on_panic_hotkey(self, event=None):
+        self.activate_panic_mode("hotkey")
+        return "break"
 
     def apply_platform_security_setting(self):
         self.platform_security.config = self.app_config.get_security_settings()
@@ -407,7 +471,7 @@ class MainWindow(tk.Tk):
             return
         self._hidden_to_tray = True
         self.tray_manager.hide_window()
-        self.tray_manager.notify("CryptoSafe Manager", "Running in the background.")
+        self.tray_manager.notify("CryptoSafe Manager", "Приложение работает в фоновом режиме.")
 
     def show_window_from_tray(self):
         if self.panic_mode.activated:
@@ -418,7 +482,7 @@ class MainWindow(tk.Tk):
 
     def quick_search_from_tray(self):
         self.show_window_from_tray()
-        query = simpledialog.askstring("Quick search", "Search vault:", parent=self)
+        query = simpledialog.askstring("Быстрый поиск", "Поиск в хранилище:", parent=self)
         if query is not None:
             self.load_entries(search_query=query)
 
@@ -454,12 +518,17 @@ class MainWindow(tk.Tk):
         self._show_lock_overlay()
         self.tray_manager.update_security_state(True)
         event_bus.publish("VaultLocked", data={"reason": "panic_mode"})
-        self._execute_panic_stealth_actions(method)
         if self.panic_mode.close_application:
-            self.exit_application()
+            show_fake_error = self._should_show_panic_fake_error()
+            self._execute_panic_stealth_actions(method, show_fake_error=False)
+            delay = 500 if method == "window_shake" else 100
+            self._safe_after(delay, self._finish_panic_close, show_fake_error)
         elif self.tray_manager.state.running:
+            self._execute_panic_stealth_actions(method)
             self._hidden_to_tray = True
             self.withdraw()
+        else:
+            self._execute_panic_stealth_actions(method)
 
     def _reauthenticate_after_panic(self):
         self._show_lock_overlay()
@@ -487,15 +556,31 @@ class MainWindow(tk.Tk):
                     pass
         self._hide_lock_overlay()
 
-    def _execute_panic_stealth_actions(self, method: str):
+    def _should_show_panic_fake_error(self) -> bool:
+        return self.app_config.get_bool("panic_show_fake_error", False)
+
+    def _finish_panic_close(self, show_fake_error: bool = False):
+        if show_fake_error:
+            self._show_panic_fake_error()
+        self.exit_application()
+
+    def _show_panic_fake_error(self):
+        if self._closing or not self.winfo_exists():
+            return
+        message = self.app_config.get(
+            "panic_fake_error_message",
+            "The application has encountered an unexpected error.",
+        )
+        try:
+            messagebox.showerror("Ошибка приложения", message, parent=self)
+        except tk.TclError:
+            pass
+
+    def _execute_panic_stealth_actions(self, method: str, show_fake_error: bool = True):
+        if show_fake_error and self.app_config.get_bool("panic_show_fake_error", False):
+            self._safe_after(50, self._show_panic_fake_error)
         if not self.panic_mode.stealth_mode:
             return
-        if self.app_config.get_bool("panic_show_fake_error", False):
-            message = self.app_config.get(
-                "panic_fake_error_message",
-                "The application has encountered an unexpected error.",
-            )
-            self.after(50, lambda: messagebox.showerror("Application Error", message))
         command = str(self.app_config.get("panic_decoy_command", "") or "").strip()
         if self.app_config.get_bool("panic_launch_decoy", False) and command:
             try:
@@ -911,7 +996,7 @@ class MainWindow(tk.Tk):
             self.clipboard_service.copy_entry_field(self.entry_manager, entry_id, field_name)
         except Exception as e:
             logger.error(f"Clipboard copy error: {e}")
-            messagebox.showerror("Буфер обмена", f"Не удалось скопировать данные:\n{e}", parent=self)
+            messagebox.showerror("Буфер обмена", f"Не удалось скопировать данные:\n{translate_error_text(e)}", parent=self)
 
     def _load_password_for_table(self, entry_id: str) -> str:
         if not self.entry_manager or not entry_id:
@@ -921,7 +1006,7 @@ class MainWindow(tk.Tk):
             return entry.get("password", "") if entry else ""
         except Exception as e:
             logger.error(f"Password reveal error for {entry_id}: {e}")
-            messagebox.showerror("Пароль", f"Не удалось показать пароль:\n{e}", parent=self)
+            messagebox.showerror("Пароль", f"Не удалось показать пароль:\n{translate_error_text(e)}", parent=self)
             return ""
 
     def _open_entry_editor(self, entry: dict):
@@ -934,7 +1019,7 @@ class MainWindow(tk.Tk):
             full_entry = self.entry_manager.get_entry(entry_id)
         except Exception as e:
             logger.error(f"Entry load for edit failed for {entry_id}: {e}")
-            messagebox.showerror("Редактирование", f"Не удалось загрузить запись:\n{e}", parent=self)
+            messagebox.showerror("Редактирование", f"Не удалось загрузить запись:\n{translate_error_text(e)}", parent=self)
             return
 
         if not full_entry:
@@ -946,14 +1031,14 @@ class MainWindow(tk.Tk):
     def copy_entry_all(self, entry: dict):
         entry_id = entry.get("id")
         if not entry_id:
-            self.show_clipboard_toast("РќРµС‚ РґР°РЅРЅС‹С… РґР»СЏ РєРѕРїРёСЂРѕРІР°РЅРёСЏ", warning=True)
+            self.show_clipboard_toast("Нет данных для копирования", warning=True)
             return
 
         try:
             self.clipboard_service.copy_entry_summary(self.entry_manager, entry_id)
         except Exception as e:
             logger.error(f"Clipboard copy all error: {e}")
-            messagebox.showerror("Р‘СѓС„РµСЂ РѕР±РјРµРЅР°", f"РќРµ СѓРґР°Р»РѕСЃСЊ СЃРєРѕРїРёСЂРѕРІР°С‚СЊ Р·Р°РїРёСЃСЊ:\n{e}", parent=self)
+            messagebox.showerror("Буфер обмена", f"Не удалось скопировать запись:\n{translate_error_text(e)}", parent=self)
 
     def _on_entry_save(self, data: dict, entry_id: str = None):
         try:
@@ -967,7 +1052,7 @@ class MainWindow(tk.Tk):
             self.load_entries()
         except Exception as e:
             logger.error(f"Save error: {e}")
-            messagebox.showerror("Ошибка", f"Не удалось сохранить запись:\n{e}")
+            messagebox.showerror("Ошибка", f"Не удалось сохранить запись:\n{translate_error_text(e)}")
 
     def _on_table_action(self, action: str, entry: dict):
         if action == "open":
@@ -1070,10 +1155,14 @@ class MainWindow(tk.Tk):
         self.status_label.config(text=message)
 
     def refresh_clipboard_status(self):
+        if self._closing or not self.winfo_exists():
+            return
         self._on_clipboard_status(self.clipboard_service.get_clipboard_status())
-        self.after(1000, self.refresh_clipboard_status)
+        self._safe_after(1000, self.refresh_clipboard_status)
 
     def _on_clipboard_status(self, status):
+        if self._closing or not self.winfo_exists():
+            return
         self.tray_manager.update_clipboard_status(status)
         if status.active:
             remaining = "never" if status.remaining_seconds <= 0 else f"{int(status.remaining_seconds)}s"
@@ -1090,36 +1179,48 @@ class MainWindow(tk.Tk):
             self.table.set_clipboard_entry(None)
 
     def _on_clipboard_copied(self, data):
+        if self._closing or not self.winfo_exists():
+            return
         if not self.app_config.get_bool("clipboard_notify_on_copy", True):
             return
         self.show_clipboard_toast(f"Скопировано: {data.get('data_type', 'text')}")
 
     def _on_clipboard_cleared(self, data):
+        if self._closing or not self.winfo_exists():
+            return
         if not self.app_config.get_bool("clipboard_notify_on_clear", True):
             return
         reason = data.get("reason", "unknown") if data else "unknown"
         self.show_clipboard_toast(f"Буфер очищен ({reason})")
 
     def _on_clipboard_warning(self, data):
+        if self._closing or not self.winfo_exists():
+            return
         if not self.app_config.get_bool("clipboard_notify_on_warning", True):
             return
         message = data.get("message", "Подозрительная активность буфера обмена") if data else "Подозрительная активность буфера обмена"
         self.show_clipboard_toast(message, warning=True)
 
     def _on_clipboard_block_changed(self, data):
+        if self._closing or not self.winfo_exists():
+            return
         if data and data.get("blocked"):
             self.show_clipboard_toast("Копирование заблокировано из-за подозрительной активности", warning=True)
         else:
             self.show_clipboard_toast("Копирование снова разрешено")
 
     def _on_clipboard_error(self, data):
+        if self._closing or not self.winfo_exists():
+            return
         reason = data.get("reason", "unknown") if data else "unknown"
         message = data.get("message") if data else ""
         if data and data.get("manual_clear_required"):
-            message = message or "Clipboard could not be cleared automatically. Clear it manually."
-        self.show_clipboard_toast(message or f"Clipboard error: {reason}", warning=True)
+            message = message or "Не удалось автоматически очистить буфер обмена. Очистите его вручную."
+        self.show_clipboard_toast(translate_error_text(message or f"Ошибка буфера обмена: {reason}"), warning=True)
 
     def show_clipboard_toast(self, message: str, warning: bool = False):
+        if self._closing or not self.winfo_exists():
+            return
         self.clipboard_label.config(text=message)
         toast = tk.Toplevel(self)
         toast.title("Буфер обмена")
@@ -1158,7 +1259,7 @@ class MainWindow(tk.Tk):
                 if value is not None:
                     preview_var.set(f"Полное значение: {value}")
             except Exception as e:
-                messagebox.showerror("Буфер обмена", str(e), parent=win)
+                messagebox.showerror("Буфер обмена", translate_error_text(e), parent=win)
 
         buttons = ttk.Frame(frame)
         buttons.pack(fill=tk.X)

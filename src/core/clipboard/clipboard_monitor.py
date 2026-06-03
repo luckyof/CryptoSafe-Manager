@@ -62,7 +62,7 @@ class ClipboardMonitor:
                 "ClipboardMonitorError",
                 {
                     "reason": "poll_failed",
-                    "message": "Clipboard monitoring degraded; clipboard access failed.",
+                    "message": "Мониторинг буфера обмена ограничен: не удалось получить доступ к буферу.",
                 },
             )
             return _READ_FAILED

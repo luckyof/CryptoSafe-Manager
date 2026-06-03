@@ -448,7 +448,7 @@ def test_panic_1_activation():
     panic = PanicMode({"panic_hotkey": "Ctrl+Alt+P", "panic_mouse_gesture_enabled": True}, bus=bus)
 
     assert panic.hotkey_sequence() == "<Control-Alt-p>"
-    positions = [(0.0, 100), (0.1, 140), (0.2, 95), (0.3, 145), (0.4, 90), (0.5, 150)]
+    positions = [(0.0, 100), (0.1, 180), (0.2, 90), (0.3, 185), (0.4, 95), (0.5, 190), (0.6, 100)]
     detected = [panic.record_window_position(x, 10, now=now) for now, x in positions]
 
     assert detected[-1] is True
@@ -457,11 +457,20 @@ def test_panic_1_activation():
 
 def test_panic_1_realistic_window_shake():
     panic = PanicMode({"panic_mouse_gesture_enabled": True}, bus=_EventRecorder())
-    positions = [(0.0, 420), (0.25, 470), (0.5, 430), (0.75, 475), (1.0, 435), (1.25, 480)]
+    positions = [(0.0, 420), (0.18, 500), (0.36, 410), (0.54, 505), (0.72, 415), (0.9, 510), (1.08, 420)]
 
     detected = [panic.record_window_position(x, 10, now=now) for now, x in positions]
 
     assert detected[-1] is True
+
+
+def test_panic_1_ignores_small_window_moves():
+    panic = PanicMode({"panic_mouse_gesture_enabled": True}, bus=_EventRecorder())
+    positions = [(0.0, 420), (0.2, 435), (0.4, 418), (0.6, 440), (0.8, 422), (1.0, 438), (1.2, 425)]
+
+    detected = [panic.record_window_position(x, 10, now=now) for now, x in positions]
+
+    assert not any(detected)
 
 
 def test_panic_1_pointer_drag_gesture():
@@ -566,7 +575,7 @@ def test_test_5_usability():
     message = friendly_error_message(PermissionError("access denied"), "export")
     batches = list(batched([1, 2, 3, 4, 5], 2))
 
-    assert "permission" in message.title.lower()
+    assert "прав" in message.title.lower()
     assert batches == [[1, 2], [3, 4], [5]]
     assert COMMON_SHORTCUTS["search"] == "<Control-f>"
     assert security_state_color("locked") != security_state_color("unlocked")

@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 
 from core.import_export import KeyExchangeService, ShareOptions, SharingService
+from gui.ux import translate_error_text
 from .qr_dialog import QRCodeDialog
 
 
@@ -33,8 +34,9 @@ class SharingDialog(tk.Toplevel):
         self.output_path_var = tk.StringVar()
 
     def _create_widgets(self):
-        root = ttk.Frame(self, padding=10)
-        root.pack(fill=tk.BOTH, expand=True)
+        shell = ttk.Frame(self)
+        shell.pack(fill=tk.BOTH, expand=True)
+        root = self._create_scrollable_content(shell)
 
         self.entry_label = ttk.Label(root, text="Запись: --")
         self.entry_label.pack(anchor=tk.W)
@@ -74,10 +76,38 @@ class SharingDialog(tk.Toplevel):
         self.history_text.pack(fill=tk.BOTH, expand=True)
         self._load_share_history()
 
-        footer = ttk.Frame(root)
+        footer = ttk.Frame(shell, padding=10)
         footer.pack(fill=tk.X)
         ttk.Button(footer, text="Создать пакет", command=self._create_share).pack(side=tk.RIGHT, padx=(6, 0))
         ttk.Button(footer, text="Закрыть", command=self.destroy).pack(side=tk.RIGHT)
+
+    def _create_scrollable_content(self, parent):
+        container = ttk.Frame(parent)
+        container.pack(fill=tk.BOTH, expand=True)
+        canvas = tk.Canvas(container, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(container, orient=tk.VERTICAL, command=canvas.yview)
+        content = ttk.Frame(canvas, padding=10)
+        window_id = canvas.create_window((0, 0), window=content, anchor=tk.NW)
+
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        def update_scroll_region(_event=None):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        def update_content_width(event):
+            canvas.itemconfigure(window_id, width=event.width)
+
+        def on_mousewheel(event):
+            delta = -1 if event.delta > 0 else 1
+            canvas.yview_scroll(delta * 3, "units")
+
+        content.bind("<Configure>", update_scroll_region)
+        canvas.bind("<Configure>", update_content_width)
+        canvas.bind("<Enter>", lambda _event: canvas.bind_all("<MouseWheel>", on_mousewheel))
+        canvas.bind("<Leave>", lambda _event: canvas.unbind_all("<MouseWheel>"))
+        return content
 
     def _load_entry_info(self):
         try:
@@ -151,4 +181,4 @@ class SharingDialog(tk.Toplevel):
             self._load_share_history()
             messagebox.showinfo("Обмен", f"Пакет создан.\nShare ID: {package.shared_id}", parent=self)
         except Exception as exc:
-            messagebox.showerror("Обмен", f"Не удалось создать пакет:\n{exc}", parent=self)
+            messagebox.showerror("Обмен", f"Не удалось создать пакет:\n{translate_error_text(exc)}", parent=self)

@@ -5,6 +5,7 @@ from tkinter import ttk, messagebox, filedialog, simpledialog
 from datetime import datetime, timedelta, timezone
 
 from core.audit import AuditLogExporter
+from gui.ux import translate_error_text
 
 
 class AuditLogViewer(ttk.Frame):
@@ -496,7 +497,7 @@ class AuditLogViewer(ttk.Frame):
                 parent=self,
             )
         except Exception as error:
-            messagebox.showerror("Аудит", f"Не удалось сохранить отчёт проверки:\n{error}", parent=self)
+            messagebox.showerror("Аудит", f"Не удалось сохранить отчёт проверки:\n{translate_error_text(error)}", parent=self)
 
     def export_logs(self):
         if not self.db or not self.audit_manager or not self.key_manager:
@@ -558,7 +559,7 @@ class AuditLogViewer(ttk.Frame):
                     source="audit",
                     details={"format": export_format, "reason": str(error)},
                 )
-            messagebox.showerror("Экспорт аудита", f"Не удалось выполнить экспорт:\n{error}", parent=self)
+            messagebox.showerror("Экспорт аудита", f"Не удалось выполнить экспорт:\n{translate_error_text(error)}", parent=self)
 
     def _confirm_master_password(self) -> bool:
         password = simpledialog.askstring(
@@ -681,7 +682,7 @@ class AuditLogViewer(ttk.Frame):
                 on_done()
             messagebox.showinfo("Расписание экспорта", "Расписание добавлено.", parent=self)
         except Exception as error:
-            messagebox.showerror("Расписание экспорта", f"Не удалось добавить расписание:\n{error}", parent=self)
+            messagebox.showerror("Расписание экспорта", f"Не удалось добавить расписание:\n{translate_error_text(error)}", parent=self)
 
     def run_due_export_schedules(self, on_done=None):
         if not self.db or not self.audit_manager or not self.key_manager:
@@ -698,7 +699,7 @@ class AuditLogViewer(ttk.Frame):
         except PermissionError:
             messagebox.showwarning("Расписание экспорта", "Мастер-пароль не подтверждён.", parent=self)
         except Exception as error:
-            messagebox.showerror("Расписание экспорта", f"Не удалось выполнить расписание:\n{error}", parent=self)
+            messagebox.showerror("Расписание экспорта", f"Не удалось выполнить расписание:\n{translate_error_text(error)}", parent=self)
 
     def highlight_selected_entry(self):
         row = self._selected_row()
