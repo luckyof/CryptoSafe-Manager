@@ -69,7 +69,7 @@ SECURITY_PROFILES = {
         "panic_launch_decoy": False,
         "panic_decoy_command": "",
         "panic_redirect_url": "",
-        "panic_mouse_gesture_enabled": True,
+        "panic_mouse_gesture_enabled": False,
         "platform_secure_storage_enabled": True,
         "windows_credential_guard_enabled": True,
         "windows_hello_enabled": False,

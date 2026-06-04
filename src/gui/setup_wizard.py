@@ -59,7 +59,12 @@ class SetupWizard(tk.Toplevel):
         # Вкладка 3: Настройки шифрования (Заглушка)
         tab_crypto = ttk.Frame(notebook, padding=10)
         notebook.add(tab_crypto, text="Шифрование")
-        ttk.Label(tab_crypto, text="[STUB] Параметры формирования ключа будут доступны в Спринте 3.\n\nИспользуется: AES-256-GCM").pack(anchor=tk.W)
+        crypto_text = (
+            "Используется: AES-256-GCM.\n\n"
+            "Ключ шифрования формируется из мастер-пароля с солью и параметрами сложности.\n"
+            "Мастер-пароль не хранится в открытом виде, а записи сохраняются только зашифрованными."
+        )
+        ttk.Label(tab_crypto, text=crypto_text, wraplength=340, justify=tk.LEFT).pack(anchor=tk.W)
 
         # Кнопки
         btn_frame = ttk.Frame(self)

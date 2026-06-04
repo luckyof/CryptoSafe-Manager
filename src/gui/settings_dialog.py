@@ -74,7 +74,7 @@ class SettingsDialog(tk.Toplevel):
         self.start_minimized_var = tk.BooleanVar(value=self.config_manager.get_bool("start_minimized_to_tray", False))
         self.panic_enabled_var = tk.BooleanVar(value=self.config_manager.get_bool("panic_mode_enabled", True))
         self.panic_mouse_gesture_var = tk.BooleanVar(
-            value=self.config_manager.get_bool("panic_mouse_gesture_enabled", True)
+            value=self.config_manager.get_bool("panic_mouse_gesture_enabled", False)
         )
         self.panic_close_app_var = tk.BooleanVar(value=self.config_manager.get_bool("panic_close_application", False))
         self.panic_stealth_var = tk.BooleanVar(value=self.config_manager.get_bool("panic_stealth_mode", False))

@@ -47,7 +47,7 @@ def test_arc_2_defaults(tmp_path, monkeypatch):
     assert settings["memory_protection_enabled"] is True
     assert settings["panic_mode_enabled"] is True
     assert settings["panic_hotkey"] == "Ctrl+Alt+P"
-    assert settings["panic_mouse_gesture_enabled"] is True
+    assert settings["panic_mouse_gesture_enabled"] is False
     assert settings["panic_close_application"] is False
     assert 60 <= settings["activity_lock_timeout_seconds"] <= 8 * 60 * 60
     assert config.validate_security_settings() == []

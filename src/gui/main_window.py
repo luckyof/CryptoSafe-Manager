@@ -178,6 +178,8 @@ class MainWindow(tk.Tk):
 
     def on_login_success(self):
         """Описывает публичное действие on login success."""
+        state_manager.login("default_user")
+        self.clipboard_service.unblock_copies()
         if self.audit and hasattr(self.audit, "shutdown"):
             self.audit.shutdown()
         self.audit = AuditManager(self.db, key_manager=self.key_manager)
@@ -369,15 +371,15 @@ class MainWindow(tk.Tk):
 
     def _apply_toolbar_accessibility(self, toolbar):
         tooltips = [
-            "Add entry (Ctrl+N)",
-            "Edit selected entry (Ctrl+E)",
-            "Move selected entries to trash (Delete)",
-            "Show or hide selected passwords (Ctrl+Shift+P)",
-            "Export vault data",
-            "Import vault data",
-            "Share selected entry securely",
-            "Copy selected username (Ctrl+U)",
-            "Copy selected password (Ctrl+C)",
+            "Добавить запись (Ctrl+N)",
+            "Редактировать выбранную запись (Ctrl+E)",
+            "Удалить выбранные записи (Delete)",
+            "Показать или скрыть выбранные пароли (Ctrl+Shift+P)",
+            "Экспортировать данные хранилища",
+            "Импортировать данные в хранилище",
+            "Безопасно поделиться выбранной записью",
+            "Копировать логин выбранной записи (Ctrl+U)",
+            "Копировать пароль выбранной записи (Ctrl+C)",
             "Режим паники (Ctrl+Alt+P)",
         ]
         buttons = [child for child in toolbar.winfo_children() if isinstance(child, ttk.Button)]

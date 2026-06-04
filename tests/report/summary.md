@@ -4,9 +4,9 @@
 
 ```text
 Command: py -m pytest tests/ --cov=src
-Result: 259 passed, 1 skipped
-Duration: 77.66 seconds
-Coverage with Sprint 8 policy: 82.58%
+Result: 263 passed
+Duration: 60.64 seconds
+Coverage with Sprint 8 policy: 82.50%
 ```
 
 Для финального Sprint 8 coverage считается по стабильному слою приложения (`src/core` и `src/database`).
